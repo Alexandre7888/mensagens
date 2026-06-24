@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste Real de Chamadas WebRTC (v9+)</title>
+    <!-- PeerJS para conexão P2P -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f4f4f4; color: #333; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        h1 { font-size: 24px; margin-bottom: 5px; }
+        p { margin-top: 0; color: #666; }
+        
+        .chamada-item { border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; background: #fafafa; }
+        .status-initiated { color: #d97706; font-weight: bold; }
+        .status-active { color: #16a34a; font-weight: bold; }
+        .status-ended { color: #dc2626; font-weight: bold; }
+        
+        button { background: #4f46e5; color: white; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: background 0.2s; }
+        button:hover { background: #4338ca; }
+        button:disabled { background: #9ca3af; cursor: not-allowed; }
+        
+        .alerta { padding: 12px; border-radius: 6px; margin-top: 15px; display: none; font-weight: bold; }
+        .alerta.sucesso { background: #dcfce7; border: 1px solid #bbf7d0; color: #166534; }
+        .alerta.erro { background: #fee2e2; border: 1px solid #fecaca; color: #991b1b; }
+
+        /* Área de Vídeo */
+        .video-container { display: flex; gap: 20px; margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px; display: none; }
+        .video-box { flex: 1; display: flex; flex-direction: column; align-items: center; background: #111827; border-radius: 8px; overflow: hidden; padding-bottom: 10px; }
+        .video-box span { color: white; padding: 8px; font-weight: bold; }
+        video { width: 100%; max-height: 300px; background: black; object-fit: cover; }
+        
+        .status-bar { margin-top: 15px; padding: 10px; background: #e0e7ff; border-radius: 6px; color: #3730a3; font-weight: 500; display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Painel de Teste Real de Chamadas WebRTC</h1>
+    <p>Conecte-se às chamadas pendentes e transmita vídeo/áudio P2P via PeerJS.</p>
+    
+    <div id="status-peer" class="status-bar">Inicializando PeerJS...</div>
+    
+    <div id="lista-chamadas" style="margin-top: 20px;">Conectando ao Firebase...</div>
+    <div id="alerta-msg" class="alerta"></div>
+
+    <div id="video-area" class="video-container">
+        <div class="video-box">
+            <span>Seu Vídeo (Local)</span>
+            <video id="video-local" autoplay playsinline muted></video>
+        </div>
+        <div class="video-box">
+            <span>Vídeo do Outro Usuário (Remoto)</span>
+            <video id="video-remoto" autoplay playsinline></video>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getDatabase, ref, onValue, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBzRLpZJDMeFASIjje4SJBfTInIEO-GKVI",
+      authDomain: "html-785e3.firebaseapp.com",
+      databaseURL: "https://html-785e3-default-rtdb.firebaseio.com",
+      projectId: "html-785e3",
+      storageBucket: "html-785e3.firebasestorage.app",
+      messagingSenderId: "389467952076",
+      appId: "1:389467952076:web:fcad8e95181b9050494369"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // Elementos da UI
+    const listaDiv = document.getElementById('lista-chamadas');
+    const alerta = document.getElementById('alerta-msg');
+    const videoArea = document.getElementById('video-area');
+    const videoLocal = document.getElementById('video-local');
+    const videoRemoto = document.getElementById('video-remoto');
+    const statusBar = document.getElementById('status-peer');
+
+    // Estado WebRTC
+    let myPeer = null;
+    let myPeerId = null;
+    let localStream = null;
+    let currentCall = null;
+    let activeCallId = null;
+
+    // 1. Inicializar PeerJS
+    function initPeer() {
+        statusBar.style.display = 'block';
+        myPeer = new Peer('testuser_' + Math.random().toString(36).substr(2, 9), { debug: 2 });
+
+        myPeer.on('open', (id) => {
+            myPeerId = id;
+            statusBar.innerHTML = `PeerJS Conectado! Meu ID: <strong>${id}</strong>`;
+            statusBar.style.background = '#dcfce7';
+            statusBar.style.color = '#166534';
+        });
+
+        // 2. Escutar chamadas recebidas via PeerJS (O caller vai nos ligar depois que atualizarmos o Firebase)
+        myPeer.on('call', (call) => {
+            console.log("Recebendo chamada WebRTC P2P de:", call.peer);
+            currentCall = call;
+            
+            // Atende enviando nosso stream local
+            call.answer(localStream);
+
+            // Quando receber o stream remoto, mostra no vídeo
+            call.on('stream', (remoteStream) => {
+                console.log("Stream remoto recebido!");
+                videoRemoto.srcObject = remoteStream;
+            });
+
+            call.on('close', () => {
+                encerrarChamadaLocal();
+            });
+        });
+
+        myPeer.on('error', (err) => {
+            mostrarAlerta(`Erro PeerJS: ${err.type}`, 'erro');
+        });
+    }
+
+    // Solicitar Câmera e Microfone do Testador
+    async function solicitarMidia() {
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            videoLocal.srcObject = localStream;
+            videoArea.style.display = 'flex';
+            return true;
+        } catch (error) {
+            mostrarAlerta("Erro ao acessar câmera/microfone. Dê as permissões no navegador.", 'erro');
+            return false;
+        }
+    }
+
+    function mostrarAlerta(msg, tipo) {
+        alerta.style.display = 'block';
+        alerta.className = `alerta ${tipo}`;
+        alerta.innerHTML = msg;
+    }
+
+    function encerrarChamadaLocal() {
+        if (currentCall) currentCall.close();
+        if (videoRemoto.srcObject) {
+            videoRemoto.srcObject.getTracks().forEach(t => t.stop());
+            videoRemoto.srcObject = null;
+        }
+        if (activeCallId) {
+            update(ref(db, `calls/${activeCallId}`), { status: 'ended' });
+        }
+        mostrarAlerta("Chamada encerrada.", 'erro');
+        activeCallId = null;
+    }
+
+    // 3. Escuta chamadas no Firebase
+    const callsRef = ref(db, 'calls');
+    onValue(callsRef, (snapshot) => {
+        const chamadas = snapshot.val();
+
+        if (!chamadas) {
+            listaDiv.innerHTML = '<p>Nenhuma chamada rolando no momento.</p>';
+            return;
+        }
+
+        let html = '';
+        Object.keys(chamadas).forEach((callId) => {
+            const c = chamadas[callId];
+            if(c.status === 'ended') return; // ignora encerradas
+            
+            let statusClasse = 'status-initiated';
+            if(c.status === 'active') statusClasse = 'status-active';
+            
+            const isInCall = activeCallId === callId;
+            const btnTexto = isInCall ? 'Encerrar' : (c.status === 'initiated' ? 'Entrar' : 'Ocupada');
+            const btnCor = isInCall ? 'background: #dc2626;' : '';
+            const desativarBtn = !isInCall && c.status !== 'initiated';
+
+            html += `
+                <div class="chamada-item">
+                    <div>
+                        <strong>ID:</strong> ${callId.substring(0,8)}...<br>
+                        <small>De: ${c.callerId} | Vídeo: ${c.isVideo ? 'Sim' : 'Não'}</small><br>
+                        <small>Status: <span class="${statusClasse}">${c.status}</span></small>
+                    </div>
+                    <div>
+                        <button 
+                            data-id="${callId}" 
+                            class="btn-acao" 
+                            style="${btnCor}"
+                            ${desativarBtn ? 'disabled' : ''}>
+                            ${btnTexto}
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+        
+        listaDiv.innerHTML = html || '<p>Nenhuma chamada ativa no momento.</p>';
+
+        document.querySelectorAll('.btn-acao').forEach(botao => {
+            botao.addEventListener('click', async (e) => {
+                const callId = e.target.getAttribute('data-id');
+                
+                if (activeCallId === callId) {
+                    encerrarChamadaLocal();
+                } else {
+                    entrarNaChamada(callId);
+                }
+            });
+        });
+    });
+
+    // 4. Fluxo para entrar na chamada WebRTC
+    async function entrarNaChamada(callId) {
+        if (!myPeerId) {
+            mostrarAlerta("Aguarde o PeerJS conectar primeiro.", 'erro');
+            return;
+        }
+
+        mostrarAlerta("Solicitando câmera e microfone...", 'sucesso');
+        const temMidia = await solicitarMidia();
+        if (!temMidia) return;
+
+        activeCallId = callId;
+        const chamadaRef = ref(db, `calls/${callId}`);
+        
+        // Avisamos o Caller que estamos prontos e passamos nosso PeerID para ele ligar pra nós
+        update(chamadaRef, {
+            status: 'active',
+            receiverPeerId: myPeerId
+        }).then(() => {
+            mostrarAlerta(`Avisamos o Caller. Aguardando a conexão P2P chegar...`, 'sucesso');
+        }).catch(err => {
+            mostrarAlerta("Erro Firebase: " + err.message, 'erro');
+        });
+    }
+
+    // Iniciar tudo
+    initPeer();
+
+</script>
+</body>
+</html>

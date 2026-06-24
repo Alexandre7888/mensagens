@@ -1,0 +1,21 @@
+{
+  "name": "mensagensHUB",
+  "short_name": "mensagensHUB",
+  "description": "Aplicativo de chat e rede social com WebRTC",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#667eea",
+  "icons": [
+    {
+      "src": "https://app.trickle.so/storage/public/images/usr_1b4249e300000001/69bb1bd2-fc92-4f38-85f2-a598ae69ef5e.1000336397",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://app.trickle.so/storage/public/images/usr_1b4249e300000001/69bb1bd2-fc92-4f38-85f2-a598ae69ef5e.1000336397",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
