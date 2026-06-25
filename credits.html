@@ -17,7 +17,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
     <script src="https://publisher.linkvertise.com/cdn/linkvertise.js"></script>
-    <script>linkvertise(1389318, {whitelist: ["app.mensagens.site.je"], blacklist: []});</script>
+    <script>linkvertise(1389318, {whitelist: [], blacklist: ["checkout.infinitepay.io"]});</script>
 
     <style type="text/tailwindcss">
     @layer theme { :root { --primary: #667eea; --secondary: #764ba2; } }
@@ -26,9 +26,65 @@
 </head>
 <body>
     <div id="root"></div>
+
+    <!-- Container Nativo para o Anúncio, totalmente fora do React -->
+    <div id="native-ad-container" class="max-w-4xl mx-auto w-full px-4 mb-6 mt-[-10px] hidden relative z-[100]">
+        <!-- O conteúdo será injetado aqui via JS nativo -->
+    </div>
+
     <script type="text/babel" src="utils/api.js"></script>
     <script type="text/babel" src="utils/firebase-init.js"></script>
     <script type="text/babel" src="components/CreditsInterface.js"></script>
     <script type="text/babel" src="credits-app.js"></script>
+    
+    <script>
+    // Função global para injetar o HTML nativo puro com iframe Blob
+    window.setupStaticAd = function(url, onWatchAd) {
+        const container = document.getElementById('native-ad-container');
+        if (!container) return;
+        
+        container.classList.remove('hidden');
+        
+        window.handleNativeAdClick = function() {
+            if (onWatchAd) {
+                setTimeout(() => onWatchAd(), 3000);
+            }
+        };
+
+        const htmlGerado = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <script src="https://publisher.linkvertise.com/cdn/linkvertise.js"><\/script>
+          <script>
+            linkvertise(1389318, { whitelist: [], blacklist: ["checkout.infinitepay.io"] });
+          <\/script>
+        </head>
+        <body style="font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0; background: transparent; display: flex; justify-content: center; align-items: center; height: 100vh;">
+          <a href="${url}" onclick="if(window.parent && window.parent.handleNativeAdClick) window.parent.handleNativeAdClick()">
+            <button style="display: inline-block; padding: 12px 24px; background-color: #4f46e5; color: white; border-radius: 8px; font-weight: bold; cursor: pointer; border: none; box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.3);">
+              Abrir Link
+            </button>
+          </a>
+        </body>
+        </html>
+      `;
+
+        const blob = new Blob([htmlGerado], { type: "text/html" });
+        const iframeUrl = URL.createObjectURL(blob);
+
+        container.innerHTML = `
+            <div class="bg-white rounded-2xl p-6 shadow-md border border-indigo-100 flex flex-col items-center text-center mt-6">
+                <h3 class="text-lg font-bold text-gray-800 mb-2 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-600"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
+                    Ganhar Créditos
+                </h3>
+                <p class="text-gray-500 text-sm mb-4">Assista a um pequeno anúncio para ganhar 100 créditos na hora.</p>
+                
+                <iframe id="viewer" src="${iframeUrl}" style="width: 100%; height: 80px; border: none; overflow: hidden;"></iframe>
+            </div>
+        `;
+    };
+    </script>
 </body>
 </html>
