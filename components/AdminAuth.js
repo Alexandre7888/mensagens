@@ -18,14 +18,14 @@ function AdminAuth({ onSuccess, onFail }) {
       
       if (ipData.ip !== ALLOWED_IP) {
          console.warn(`IP Bloqueado: ${ipData.ip}`);
-         onFail();
+         onFail("Seu endereço IP não está autorizado para acessar este painel.");
          return;
       }
 
       // 2. Solicitando Localização
       setStatusMsg('Aguardando permissão de localização...');
       if (!navigator.geolocation) {
-        onFail();
+        onFail("Seu navegador não suporta geolocalização, que é obrigatória para acessar o painel.");
         return;
       }
 
@@ -44,7 +44,7 @@ function AdminAuth({ onSuccess, onFail }) {
 
           if (city !== REQUIRED_CITY || state !== REQUIRED_STATE) {
             console.warn(`Localização Bloqueada: ${city}, ${state}`);
-            onFail();
+            onFail(`Sua localização (${city}, ${state}) não está autorizada.`);
             return;
           }
 
@@ -73,20 +73,24 @@ function AdminAuth({ onSuccess, onFail }) {
                  onSuccess();
               } else {
                  console.warn('Dispositivo não autorizado. Outro dispositivo já é o administrador.');
-                 onFail();
+                 onFail("Este dispositivo não é o dispositivo administrador principal registrado.");
               }
             }
           } else {
-            onFail();
+            onFail("Falha na conexão com o banco de dados.");
           }
 
         } catch (err) {
           console.error('Erro na geolocalização remota:', err);
-          onFail();
+          onFail("Erro ao processar as coordenadas de localização.");
         }
       }, (error) => {
         console.error('Permissão de geolocalização negada ou falha:', error);
-        onFail();
+        let errorMsg = "A permissão de geolocalização foi negada ou falhou. É obrigatório permitir o acesso à localização para verificar sua região.";
+        if (error.code === 1) errorMsg = "Você negou a permissão de localização. Por favor, permita no seu navegador e tente novamente.";
+        if (error.code === 2) errorMsg = "A rede ou os satélites de GPS não estão disponíveis para determinar sua localização.";
+        if (error.code === 3) errorMsg = "O tempo limite para obter sua localização foi atingido.";
+        onFail(errorMsg);
       }, {
         enableHighAccuracy: true,
         timeout: 10000,
@@ -95,7 +99,7 @@ function AdminAuth({ onSuccess, onFail }) {
 
     } catch (error) {
       console.error('Erro nas verificações de segurança:', error);
-      onFail();
+      onFail("Ocorreu um erro inesperado durante as verificações de segurança.");
     }
   };
 

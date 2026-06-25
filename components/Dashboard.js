@@ -1,6 +1,21 @@
 function Dashboard({ userData, onLogout }) {
   const [suggestions, setSuggestions] = React.useState([]);
   const [loadingSuggestions, setLoadingSuggestions] = React.useState(true);
+  const [highlights, setHighlights] = React.useState([]);
+  const [credits, setCredits] = React.useState(0);
+  const [isHighlighting, setIsHighlighting] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!userData.userKey && !userData.uid) return;
+    const uid = userData.userKey || userData.uid;
+    const creditsRef = window.firebaseDB.ref(`users/${uid}/credits`);
+    
+    const listener = creditsRef.on('value', snap => {
+      setCredits(snap.val() || 0);
+    });
+
+    return () => creditsRef.off('value', listener);
+  }, [userData.userKey, userData.uid]);
 
   React.useEffect(() => {
     // Algoritmo de Haversine para calcular distância em km
@@ -17,6 +32,33 @@ function Dashboard({ userData, onLogout }) {
       return R * c;
     };
 
+    // Listener em tempo real para os Destaques (Highlights)
+    const now = Date.now();
+    const highlightsRef = window.firebaseDB.ref('users').orderByChild('highlightUntil').startAt(now);
+    
+    const handleHighlights = (snap) => {
+      const data = snap.val() || {};
+      let validHighlights = [];
+      const currentTime = Date.now();
+      
+      Object.keys(data).forEach(uid => {
+        const u = data[uid];
+        if (u.highlightUntil && u.highlightUntil > currentTime) {
+          validHighlights.push({...u, uid});
+        }
+      });
+      
+      validHighlights.sort((a, b) => {
+        if (a.uid === (userData.uid || userData.userKey)) return -1;
+        if (b.uid === (userData.uid || userData.userKey)) return 1;
+        return b.highlightUntil - a.highlightUntil; // mais tempo restante primeiro
+      });
+      
+      setHighlights(validHighlights);
+    };
+
+    highlightsRef.on('value', handleHighlights);
+
     const fetchSuggestions = async () => {
       try {
         setLoadingSuggestions(true);
@@ -25,14 +67,15 @@ function Dashboard({ userData, onLogout }) {
         
         let validSuggestions = [];
         
-        // Pega a configuração real do usuário (se não configurou, o padrão é 'global')
         const myVisibility = window.SettingsManager ? (window.SettingsManager.getSettings().suggestionVisibility || 'global') : 'global';
         const myLocation = userData.location;
 
         Object.keys(allUsers).forEach(uid => {
+          const u = allUsers[uid];
+
+          // Lógica de Sugestões
           if (uid === userData.uid || uid === userData.userKey) return; 
           
-          const u = allUsers[uid];
           const theirVisibility = u.suggestionVisibility || 'global';
           
           if (theirVisibility === 'hidden' || myVisibility === 'hidden') return;
@@ -42,18 +85,18 @@ function Dashboard({ userData, onLogout }) {
              distance = getDistance(myLocation.lat, myLocation.lng, u.location.lat, u.location.lng);
           }
 
+          // Se a configuração for 'nearby' e não tiver localização, não mostra nas sugestões
+          if (myVisibility === 'nearby' && !myLocation) return;
+
           if (myVisibility === 'nearby' || theirVisibility === 'nearby') {
-            // Se um dos dois exige proximidade, eles só aparecem se houver distância e for <= 10km
             if (distance !== null && distance <= 10) {
               validSuggestions.push({...u, uid, distance});
             }
           } else if (myVisibility === 'global' && theirVisibility === 'global') {
-            // Se ambos são globais, exibe de qualquer forma (com ou sem distância)
             validSuggestions.push({...u, uid, distance});
           }
         });
 
-        // Ordenação flexível: globais próximos primeiro, depois globais sem distância
         validSuggestions.sort((a, b) => {
           if (a.distance === null && b.distance === null) return 0;
           if (a.distance === null) return 1;
@@ -62,23 +105,20 @@ function Dashboard({ userData, onLogout }) {
         });
         
         setSuggestions(validSuggestions.slice(0, 15));
+        
       } catch(e) {
-        console.error("Erro ao buscar sugestões", e);
+        console.error("Erro ao buscar dados", e);
       } finally {
         setLoadingSuggestions(false);
       }
     };
 
-    const myVis = window.SettingsManager ? (window.SettingsManager.getSettings().suggestionVisibility || 'global') : 'global';
-    
-    // Se o usuário quer proximidade, mas ainda não liberou a localização:
-    if (myVis === 'nearby' && !userData.location) {
-      setSuggestions([]); // Não pode ver ninguém por proximidade sem localização
-      setLoadingSuggestions(false);
-    } else {
-      fetchSuggestions();
-    }
-  }, [userData.location, userData.uid, userData.userKey]); // Refaz o algoritmo sempre que a localização mudar
+    fetchSuggestions();
+
+    return () => {
+        highlightsRef.off('value', handleHighlights);
+    };
+  }, [userData.location, userData.uid, userData.userKey]);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col" data-name="dashboard" data-file="components/Dashboard.js">
@@ -92,6 +132,11 @@ function Dashboard({ userData, onLogout }) {
         </div>
         
         <div className="flex items-center gap-4">
+          <a href="credits.html" className="flex items-center gap-1.5 bg-amber-100 hover:bg-amber-200 transition-colors py-1.5 px-3 rounded-full cursor-pointer shadow-sm border border-amber-200" title="Ver Créditos">
+             <div className="icon-coins text-amber-600 text-lg"></div>
+             <span className="text-sm font-bold text-amber-700">{credits}</span>
+          </a>
+
           <div className="flex items-center gap-3 bg-gray-100 py-1.5 px-3 rounded-full">
             <img 
               src={userData.profilePicture} 
@@ -123,11 +168,49 @@ function Dashboard({ userData, onLogout }) {
               Você logou com sucesso usando a CodeHUB e sua foto de perfil foi salva no Firebase em formato Base64.
             </p>
             
-            <div className="bg-gray-50 rounded-lg p-6 text-left max-w-lg mx-auto border border-gray-200">
-              <h3 className="font-semibold text-gray-700 mb-4 flex items-center gap-2">
-                <div className="icon-user text-indigo-500"></div>
-                Seus Dados
-              </h3>
+            <div className="bg-gray-50 rounded-lg p-6 text-left max-w-lg mx-auto border border-gray-200 relative overflow-hidden">
+              <div className="flex items-center justify-between mb-4 border-b border-gray-200 pb-4">
+                <h3 className="font-semibold text-gray-700 flex items-center gap-2">
+                  <div className="icon-user text-indigo-500"></div>
+                  Seus Dados
+                </h3>
+                
+                <button 
+                  onClick={async () => {
+                    const cost = 30;
+                    if (credits < cost) {
+                        alert(`Você precisa de ${cost} créditos para destacar o perfil!`);
+                        return;
+                    }
+                    if (window.confirm(`Deseja destacar seu perfil por 1 hora utilizando ${cost} créditos?`)) {
+                        setIsHighlighting(true);
+                        try {
+                            const uid = userData.uid || userData.userKey;
+                            const updates = {};
+                            updates[`users/${uid}/credits`] = credits - cost;
+                            updates[`users/${uid}/highlightUntil`] = Date.now() + (60 * 60 * 1000); // +1 hour
+                            await window.firebaseDB.ref().update(updates);
+                            alert("Perfil destacado com sucesso! Você já está visível no topo.");
+                        } catch (e) {
+                            console.error(e);
+                            alert("Erro ao destacar perfil.");
+                        } finally {
+                            setIsHighlighting(false);
+                        }
+                    }
+                  }}
+                  disabled={isHighlighting}
+                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 text-white text-sm font-bold rounded-lg shadow-sm transition-all"
+                >
+                  {isHighlighting ? (
+                    <div className="icon-loader animate-spin"></div>
+                  ) : (
+                    <div className="icon-star"></div>
+                  )}
+                  Destacar Perfil (30 Créditos)
+                </button>
+              </div>
+              
               <div className="space-y-3 text-sm">
                 <p><span className="font-medium text-gray-500 w-20 inline-block">Nome:</span> {userData.nome}</p>
                 <p><span className="font-medium text-gray-500 w-20 inline-block">Email:</span> {userData.email}</p>
@@ -141,8 +224,36 @@ function Dashboard({ userData, onLogout }) {
               </div>
             </div>
 
+            {/* Highlights Section */}
+            {!loadingSuggestions && highlights.length > 0 && (
+              <div className="mt-8 mb-12 text-left">
+                <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                  <div className="icon-star text-amber-500"></div>
+                  Perfis em Destaque
+                </h3>
+                <div className="flex overflow-x-auto gap-4 pb-4 snap-x snap-mandatory hide-scrollbar" style={{ scrollbarWidth: 'none' }}>
+                  {highlights.map(h => (
+                    <div key={h.uid} className="snap-start shrink-0 w-64 bg-gradient-to-b from-amber-50 to-white border border-amber-200 rounded-2xl p-5 flex flex-col items-center text-center shadow-sm relative overflow-hidden">
+                      <div className="absolute top-0 w-full h-1 bg-gradient-to-r from-amber-400 to-orange-500"></div>
+                      <div className="relative mb-3">
+                        <img src={h.profilePicture || 'https://via.placeholder.com/150'} alt="Profile" className="w-20 h-20 rounded-full object-cover border-4 border-white shadow-md" />
+                        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full border-2 border-white shadow-sm">
+                          PRO
+                        </div>
+                      </div>
+                      <h4 className="font-bold text-gray-900 text-lg w-full truncate">{h.nome || h.username || 'Usuário'}</h4>
+                      <p className="text-sm text-gray-500 mb-4 w-full truncate">@{h.username || 'user'}</p>
+                      <button className="w-full py-2 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-colors">
+                        Ver Perfil
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Suggestions Section */}
-            <div className="mt-12 text-left">
+            <div className="mt-8 text-left">
               <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
                 <div className="icon-users text-indigo-500"></div>
                 Sugestões para você

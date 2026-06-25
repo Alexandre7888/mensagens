@@ -40,6 +40,8 @@ function ChatInterface({ user, onLogout }) {
     const [toastMessage, setToastMessage] = React.useState(null);
     const [contextMenu, setContextMenu] = React.useState(null);
     const [editingMessage, setEditingMessage] = React.useState(null);
+    const [featuredHours, setFeaturedHours] = React.useState(1);
+    const [showFeaturedModal, setShowFeaturedModal] = React.useState(false);
 
     const cleanupOldFiles = async (msgs, refPath) => {
         const now = Date.now();
@@ -97,7 +99,8 @@ function ChatInterface({ user, onLogout }) {
             const val = snap.val();
             if(val) {
                 setAllUsersData(val);
-                const usersList = Object.keys(val).map(k => ({...val[k], id: k})).filter(u => u.id !== user.id);
+                const now = Date.now();
+                const usersList = Object.keys(val).map(k => ({...val[k], id: k})).filter(u => u.id !== user.id && u.isFeatured && u.featuredUntil > now);
                 setSuggestions(usersList);
             }
         });
@@ -516,37 +519,36 @@ function ChatInterface({ user, onLogout }) {
                     <button onClick={() => setActiveTab('communities')} className={`flex-none px-4 py-3 text-sm font-bold border-b-[3px] transition-colors flex items-center gap-2 ${activeTab === 'communities' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
                         <div className="icon-network"></div> Comunidades
                     </button>
-                    <button onClick={() => setActiveTab('suggestions')} className={`flex-none px-4 py-3 text-sm font-bold border-b-[3px] transition-colors flex items-center gap-2 ${activeTab === 'suggestions' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
-                        <div className="icon-users"></div> Sugestões
-                    </button>
                 </div>
+
+                {suggestions.length > 0 && (
+                    <div className="bg-white border-b border-gray-100 shadow-sm z-0">
+                        <div className="px-4 py-2 flex gap-4 overflow-x-auto no-scrollbar">
+                            {suggestions.map(sug => (
+                                <div key={sug.id} onClick={() => { setSearchUsername(sug.username); searchAndAddUser(); }} className="flex flex-col items-center min-w-[64px] cursor-pointer group shrink-0">
+                                    <div className="relative p-[2px] rounded-full bg-gradient-to-tr from-amber-400 to-orange-500 mb-1">
+                                        <div className="bg-white p-[2px] rounded-full">
+                                            {allUsersData[sug.id]?.profilePicture ? (
+                                                <img src={allUsersData[sug.id].profilePicture} className="w-12 h-12 rounded-full object-cover border border-gray-100" />
+                                            ) : (
+                                                <div className="w-12 h-12 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-lg">
+                                                    {(sug.name || sug.username || '?').charAt(0).toUpperCase()}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <span className="text-[10px] text-gray-700 font-medium truncate w-full text-center group-hover:text-indigo-600 transition-colors">
+                                        {sug.name ? sug.name.split(' ')[0] : (sug.username || 'User')}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 <div className="flex-1 overflow-y-auto bg-gray-50">
                     {activeTab === 'chats' && (
                         <div className="flex flex-col">
-                            {window.SettingsManager?.getSettings()?.showSuggestions !== false && suggestions.length > 0 && (
-                                <div className="m-3 p-4 bg-indigo-50 border border-indigo-100 rounded-xl">
-                                    <div className="flex justify-between items-center mb-2">
-                                        <h4 className="font-bold text-indigo-900 text-sm">Sugestões para você</h4>
-                                        <button onClick={() => setActiveTab('suggestions')} className="text-xs text-indigo-600 font-bold hover:underline">Ver todas</button>
-                                    </div>
-                                    <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
-                                        {suggestions.slice(0,5).map(sug => (
-                                            <div key={sug.id} onClick={() => { setSearchUsername(sug.username); searchAndAddUser(); }} className="flex flex-col items-center min-w-[70px] cursor-pointer group">
-                                                {allUsersData[sug.id]?.profilePicture ? (
-                                                    <img src={allUsersData[sug.id].profilePicture} className="w-14 h-14 rounded-full object-cover border border-gray-200 group-hover:border-indigo-400 transition-colors shadow-sm" />
-                                                ) : (
-                                                    <div className="w-14 h-14 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-500 font-bold text-xl group-hover:border-indigo-400 transition-colors shadow-sm">
-                                                        {(sug.name || sug.username || '?').charAt(0).toUpperCase()}
-                                                    </div>
-                                                )}
-                                                <span className="text-[10px] text-gray-600 mt-1 truncate w-full text-center">{sug.name ? sug.name.split(' ')[0] : (sug.username || 'User')}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
                             {chats.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center h-48 p-8 text-center text-gray-500">
                                     <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mb-4">
@@ -637,34 +639,7 @@ function ChatInterface({ user, onLogout }) {
                         </div>
                     )}
 
-                    {activeTab === 'suggestions' && (
-                        <div className="p-2 space-y-2">
-                            {suggestions.map((sugUser) => {
-                                const blockedUsers = JSON.parse(localStorage.getItem('blockedUsers') || '[]');
-                                if(blockedUsers.includes(sugUser.id)) return null;
 
-                                return (
-                                <div key={sugUser.id} className="p-3 rounded-2xl cursor-pointer hover:bg-gray-50 flex items-center justify-between transition-colors">
-                                    <div className="flex items-center gap-4 overflow-hidden">
-                                        {allUsersData[sugUser.id]?.profilePicture ? (
-                                            <img src={allUsersData[sugUser.id].profilePicture} className="w-12 h-12 rounded-full object-cover shadow-sm flex-shrink-0" />
-                                        ) : (
-                                            <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 font-bold flex-shrink-0">
-                                                {(sugUser.name || sugUser.username || '?').charAt(0).toUpperCase()}
-                                            </div>
-                                        )}
-                                        <div className="truncate">
-                                            <h3 className="font-bold text-sm text-gray-800 truncate">{sugUser.name}</h3>
-                                            <p className="text-xs text-gray-500 truncate">@{sugUser.username}</p>
-                                        </div>
-                                    </div>
-                                    <button onClick={() => { setSearchUsername(sugUser.username); searchAndAddUser(); }} className="px-4 py-1.5 bg-indigo-100 text-indigo-700 font-semibold text-xs rounded-full hover:bg-indigo-200 transition-colors">
-                                        Adicionar
-                                    </button>
-                                </div>
-                            )})}
-                        </div>
-                    )}
                 </div>
             </div>
             
@@ -856,23 +831,25 @@ function ChatInterface({ user, onLogout }) {
 
             {showUserProfileCard && (
                 <div className="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[100] p-4" onClick={() => setShowUserProfileCard(false)}>
-                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-fade-in-up" onClick={e => e.stopPropagation()}>
-                        <div className="bg-gradient-to-r from-indigo-500 to-purple-600 h-24 relative">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-fade-in-up" onClick={e => e.stopPropagation()}>
+                        <div className="bg-gradient-to-r from-indigo-500 to-purple-600 h-32 relative">
                             <button onClick={() => setShowUserProfileCard(false)} className="absolute top-4 right-4 text-white hover:bg-white/20 p-1 rounded-full">
                                 <div className="icon-x text-xl"></div>
                             </button>
                         </div>
                         <div className="px-6 pb-6 relative">
-                            <div className="w-24 h-24 rounded-full border-4 border-white bg-white absolute -top-12 left-6 shadow-md overflow-hidden">
+                            <div className="w-32 h-32 rounded-full border-4 border-white bg-white absolute -top-16 right-6 shadow-md overflow-hidden">
                                 {user.avatar ? (
                                     <img src={user.avatar} className="w-full h-full object-cover" />
                                 ) : (
-                                    <div className="w-full h-full bg-indigo-100 flex items-center justify-center text-indigo-600"><div className="icon-user text-4xl"></div></div>
+                                    <div className="w-full h-full bg-indigo-100 flex items-center justify-center text-indigo-600"><div className="icon-user text-5xl"></div></div>
                                 )}
                             </div>
-                            <div className="mt-14">
-                                <h2 className="text-2xl font-bold text-gray-800">{user.name}</h2>
-                                <p className="text-gray-500 text-sm mb-4">Nascimento: {allUsersData[user.id]?.birthdate ? new Date(allUsersData[user.id].birthdate).toLocaleDateString('pt-BR') : 'Não informado'}</p>
+                            <div className="mt-20">
+                                <div className="mb-4">
+                                    <h2 className="text-2xl font-bold text-gray-800">{user.name}</h2>
+                                    <p className="text-gray-500 text-sm">Nascimento: {allUsersData[user.id]?.birthdate ? new Date(allUsersData[user.id].birthdate).toLocaleDateString('pt-BR') : 'Não informado'}</p>
+                                </div>
                                 
                                 <div className="space-y-4">
                                     <div>
@@ -910,7 +887,90 @@ function ChatInterface({ user, onLogout }) {
                                     }} className="w-full py-2.5 bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 font-bold rounded-xl transition-colors flex items-center justify-center gap-2">
                                         <div className="icon-share-2"></div> Compartilhar Meu Perfil
                                     </button>
+
+                                    <button onClick={() => { setShowUserProfileCard(false); setShowFeaturedModal(true); }} className="w-full py-2.5 bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-100 font-bold rounded-xl transition-colors flex items-center justify-center gap-2 mt-2">
+                                        <div className="icon-star"></div> Destacar Meu Perfil
+                                    </button>
+
+                                    <div className="pt-4 mt-2 border-t border-gray-100">
+                                        <button 
+                                            onClick={() => window.location.href = 'credits.html'}
+                                            className="w-full py-3 bg-amber-100 hover:bg-amber-200 text-amber-800 font-bold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-sm"
+                                        >
+                                            <div className="icon-coins text-xl"></div>
+                                            <span>Meus Créditos: {allUsersData[user.id]?.credits || 0}</span>
+                                        </button>
+                                    </div>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showFeaturedModal && (
+                <div className="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[100] p-4" onClick={() => setShowFeaturedModal(false)}>
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-fade-in-up" onClick={e => e.stopPropagation()}>
+                        <div className="px-6 py-6 relative">
+                            <button onClick={() => setShowFeaturedModal(false)} className="absolute top-4 right-4 text-gray-400 hover:bg-gray-100 p-1 rounded-full">
+                                <div className="icon-x text-xl"></div>
+                            </button>
+                            <h2 className="text-xl font-bold text-gray-800 mb-2 flex items-center gap-2">
+                                <div className="icon-star text-yellow-500"></div> Destacar Perfil
+                            </h2>
+                            <p className="text-gray-600 text-sm mb-4">Seu perfil aparecerá globalmente na aba de Destacados.</p>
+                            
+                            <div className="bg-gray-50 p-4 rounded-xl mb-4 border border-gray-100">
+                                <p className="text-sm text-gray-500 font-medium mb-1">Seus Créditos:</p>
+                                <div className="text-2xl font-bold text-indigo-600 flex items-center gap-2">
+                                    <div className="icon-coins text-yellow-500"></div> {allUsersData[user.id]?.credits || 0}
+                                </div>
+                            </div>
+
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Tempo de destaque (Horas)</label>
+                                    <div className="flex items-center gap-3">
+                                        <button onClick={() => setFeaturedHours(Math.max(1, featuredHours - 1))} className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200">
+                                            <div className="icon-minus"></div>
+                                        </button>
+                                        <span className="flex-1 text-center font-bold text-xl">{featuredHours}h</span>
+                                        <button onClick={() => setFeaturedHours(featuredHours + 1)} className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200">
+                                            <div className="icon-plus"></div>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="bg-yellow-50 text-yellow-800 p-3 rounded-xl border border-yellow-200 text-sm font-medium text-center">
+                                    Custo total: {featuredHours * 100} créditos
+                                </div>
+                                <button onClick={async () => {
+                                    const cost = featuredHours * 100;
+                                    const currentCredits = allUsersData[user.id]?.credits || 0;
+                                    
+                                    if (currentCredits < cost) {
+                                        showToastMessage("Créditos insuficientes!", "error");
+                                        return;
+                                    }
+                                    
+                                    const now = Date.now();
+                                    const currentFeaturedUntil = allUsersData[user.id]?.featuredUntil || now;
+                                    const baseTime = currentFeaturedUntil > now ? currentFeaturedUntil : now;
+                                    const newFeaturedUntil = baseTime + (featuredHours * 3600000);
+                                    
+                                    try {
+                                        await db.ref(`users/${user.id}`).update({
+                                            credits: currentCredits - cost,
+                                            isFeatured: true,
+                                            featuredUntil: newFeaturedUntil
+                                        });
+                                        showToastMessage(`Perfil destacado por ${featuredHours}h!`, "success");
+                                        setShowFeaturedModal(false);
+                                    } catch (e) {
+                                        showToastMessage("Erro ao destacar perfil", "error");
+                                    }
+                                }} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-colors">
+                                    Confirmar Pagamento
+                                </button>
                             </div>
                         </div>
                     </div>

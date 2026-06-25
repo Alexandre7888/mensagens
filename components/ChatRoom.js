@@ -16,8 +16,9 @@ function ChatRoom({ user, chat }) {
     // Selection state
     const [showCamera, setShowCamera] = React.useState(false);
     
-    // Selection state
+    // Selection & Context Menu state
     const [selectionMode, setSelectionMode] = React.useState(false);
+    const [contextMenu, setContextMenu] = React.useState(null);
     const [selectedMessages, setSelectedMessages] = React.useState([]);
     const [localDeletedIds, setLocalDeletedIds] = React.useState([]);
 
@@ -272,6 +273,25 @@ function ChatRoom({ user, chat }) {
     const selectAll = () => {
         const visibleMsgs = messages.filter(m => !localDeletedIds.includes(m.key));
         setSelectedMessages(visibleMsgs.map(m => m.key));
+    };
+
+    const handleCopySelected = () => {
+        const textToCopy = messages
+            .filter(m => selectedMessages.includes(m.key) && m.type === 'text')
+            .map(m => m.text)
+            .join('\n\n');
+        
+        if (textToCopy) {
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                showToastMessage("Mensagens copiadas", "success");
+                setSelectionMode(false);
+                setSelectedMessages([]);
+            }).catch(() => {
+                showToastMessage("Erro ao copiar", "error");
+            });
+        } else {
+            showToastMessage("Nenhum texto para copiar", "error");
+        }
     };
 
     const executeDelete = async (type, ids) => {
@@ -740,6 +760,9 @@ function ChatRoom({ user, chat }) {
                         <button onClick={selectAll} className="p-2 hover:bg-indigo-700 rounded-full text-sm font-medium">
                             Tudo
                         </button>
+                        <button onClick={handleCopySelected} className="p-2 hover:bg-indigo-700 rounded-full" title="Copiar Textos">
+                            <div className="icon-copy text-xl"></div>
+                        </button>
                         <button onClick={() => handleDeleteSelected('local')} className="p-2 hover:bg-indigo-700 rounded-full" title="Apagar localmente">
                             <div className="icon-trash-2 text-xl"></div>
                         </button>
@@ -817,7 +840,7 @@ function ChatRoom({ user, chat }) {
                 onTouchEnd={handleTouchEnd}
                 onScroll={handleScroll}
                 className="flex-1 overflow-y-auto p-4 space-y-4 z-10 relative" 
-                onClick={() => { setShowAttachMenu(false); setShowEmojiPicker(false); setShowGifPicker(false); }}
+                onClick={() => { setShowAttachMenu(false); setShowEmojiPicker(false); setShowGifPicker(false); setContextMenu(null); }}
                 style={{ 
                     transform: `translateY(-${pullY}px)`, 
                     transition: isPulling ? 'none' : 'transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)' 
@@ -834,6 +857,11 @@ function ChatRoom({ user, chat }) {
                              onTouchStart={() => handleMessagePressStart(msg)}
                              onTouchEnd={handleMessagePressEnd}
                              onClick={() => toggleMessageSelection(msg)}
+                             onContextMenu={(e) => {
+                                 e.preventDefault();
+                                 if (selectionMode) return;
+                                 setContextMenu({ x: e.clientX, y: e.clientY, msg });
+                             }}
                         >
                             {selectionMode && (
                                 <div className="mr-2 flex items-center">
@@ -1074,6 +1102,43 @@ function ChatRoom({ user, chat }) {
                 );
                 })()}
             </div>
+
+            {contextMenu && (
+                <div 
+                    className={`fixed z-[100] rounded-xl shadow-2xl border w-48 overflow-hidden animate-fade-in-up ${ephemeralMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}
+                    style={{ 
+                        top: Math.min(contextMenu.y, window.innerHeight - 150), 
+                        left: Math.min(contextMenu.x, window.innerWidth - 200) 
+                    }}
+                >
+                    <button 
+                        className={`w-full text-left px-4 py-3 text-sm font-bold flex items-center gap-3 transition-colors ${ephemeralMode ? 'text-gray-200 hover:bg-gray-700' : 'text-gray-700 hover:bg-gray-50'}`}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectionMode(true);
+                            setSelectedMessages([contextMenu.msg.key]);
+                            setContextMenu(null);
+                        }}
+                    >
+                        <div className="icon-check-square text-lg text-indigo-500"></div>
+                        Selecionar
+                    </button>
+                    {contextMenu.msg.type === 'text' && (
+                        <button 
+                            className={`w-full text-left px-4 py-3 text-sm font-bold flex items-center gap-3 transition-colors border-t ${ephemeralMode ? 'border-gray-700 text-gray-200 hover:bg-gray-700' : 'border-gray-100 text-gray-700 hover:bg-gray-50'}`}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard.writeText(contextMenu.msg.text);
+                                showToastMessage("Copiado", "success");
+                                setContextMenu(null);
+                            }}
+                        >
+                            <div className="icon-copy text-lg text-indigo-500"></div>
+                            Copiar
+                        </button>
+                    )}
+                </div>
+            )}
 
             {toastMessage && (
                 <div className={`fixed bottom-20 right-4 p-4 rounded-xl shadow-2xl text-white font-medium z-50 flex items-center gap-2 transform transition-all ${toastMessage.type === 'error' ? 'bg-red-500' : 'bg-gray-800'}`}>
