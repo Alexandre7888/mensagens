@@ -4,8 +4,9 @@ const PulseInterface = ({ user }) => {
     const [text, setText] = React.useState('');
     const [color, setColor] = React.useState('from-indigo-500 to-purple-600');
     const [pulses, setPulses] = React.useState([]);
-    const [myPulse, setMyPulse] = React.useState(null);
+    const [myPulses, setMyPulses] = React.useState([]);
     const [loading, setLoading] = React.useState(true);
+    const [userCredits, setUserCredits] = React.useState(0);
 
     // Novos estados
     const [imageUrl, setImageUrl] = React.useState('');
@@ -30,6 +31,12 @@ const PulseInterface = ({ user }) => {
     React.useEffect(() => {
         if (!window.firebaseDB) return;
 
+        // Fetch user credits
+        const userRef = window.firebaseDB.ref(`users/${user.id}/credits`);
+        const creditsListener = userRef.on('value', (snap) => {
+            setUserCredits(snap.val() || 0);
+        });
+
         const urlParams = new URLSearchParams(window.location.search);
         const pulseIdParam = urlParams.get('pulseId');
 
@@ -39,7 +46,7 @@ const PulseInterface = ({ user }) => {
             const data = snapshot.val();
             const now = Date.now();
             const activePulses = [];
-            let myCurrentPulse = null;
+            const myCurrentPulses = [];
 
             if (data) {
                 Object.keys(data).forEach(key => {
@@ -53,7 +60,7 @@ const PulseInterface = ({ user }) => {
                         let canView = false;
                         if (pulse.uid === user.id) {
                             canView = true;
-                            myCurrentPulse = pulse;
+                            myCurrentPulses.push(pulse);
                         } else if (pulse.privacy === 'public') {
                             canView = true;
                         } else if (pulse.privacy === 'private' && pulse.targetUser === user.id) {
@@ -78,9 +85,10 @@ const PulseInterface = ({ user }) => {
             }
 
             activePulses.sort((a, b) => b.timestamp - a.timestamp);
+            myCurrentPulses.sort((a, b) => b.timestamp - a.timestamp);
             
             setPulses(activePulses.filter(p => p.uid !== user.id));
-            setMyPulse(myCurrentPulse);
+            setMyPulses(myCurrentPulses);
             setLoading(false);
 
             // Se acessou por link, tenta abrir direto
@@ -90,7 +98,10 @@ const PulseInterface = ({ user }) => {
             }
         });
 
-        return () => pulsesRef.off('value', listener);
+        return () => {
+            pulsesRef.off('value', listener);
+            userRef.off('value', creditsListener);
+        };
     }, [user.id, viewingPulse]);
 
     const handleCaptureUpload = async (file) => {
@@ -126,8 +137,25 @@ const PulseInterface = ({ user }) => {
     const handlePublish = async () => {
         if (!text.trim() && !imageUrl) return;
         
+        const EXTRA_PULSE_COST = 50;
+        const needsToPay = myPulses.length >= 1;
+
+        if (needsToPay) {
+            if (userCredits < EXTRA_PULSE_COST) {
+                alert(`Você precisa de ${EXTRA_PULSE_COST} créditos para postar um Pulse extra. Seu saldo: ${userCredits}`);
+                return;
+            }
+            if (!window.confirm(`Isso custará ${EXTRA_PULSE_COST} créditos. Confirmar?`)) {
+                return;
+            }
+        }
+        
         setIsCreating(false);
         if(navigator.vibrate) navigator.vibrate([50]);
+
+        if (needsToPay) {
+            await window.firebaseDB.ref(`users/${user.id}/credits`).set(userCredits - EXTRA_PULSE_COST);
+        }
 
         const now = Date.now();
         const expiresAt = now + (6 * 60 * 60 * 1000); // 6 horas
@@ -148,11 +176,8 @@ const PulseInterface = ({ user }) => {
         };
 
         try {
-            // Se for link ou private, gera um ID único. Se for público e o user já tem, substitui.
-            const ref = privacy === 'public' 
-                ? window.firebaseDB.ref(`pulses/${user.id}`) 
-                : window.firebaseDB.ref(`pulses`).push();
-            
+            // Sempre gera um ID único agora para permitir múltiplos
+            const ref = window.firebaseDB.ref(`pulses`).push();
             await ref.set(newPulse);
             
             // Enviar notificações
@@ -281,40 +306,50 @@ const PulseInterface = ({ user }) => {
                 )}
 
                 <section>
-                    <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Seu Status</h2>
+                    <div className="flex justify-between items-center mb-3">
+                        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Seu Status</h2>
+                        {!isCreating && (
+                            <button onClick={() => setIsCreating(true)} className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded">
+                                + Novo Pulse
+                            </button>
+                        )}
+                    </div>
+                    
                     {!isCreating ? (
-                        myPulse ? (
-                            <div onClick={() => handleViewPulse(myPulse)} className={`pulse-card bg-gradient-to-br ${myPulse.color} rounded-2xl p-4 text-white relative shadow-md cursor-pointer hover:scale-[1.02] transition-transform`}>
-                                {myPulse.imageUrl && <div className="absolute inset-0 bg-cover bg-center opacity-30 mix-blend-overlay" style={{backgroundImage: `url(${myPulse.imageUrl})`}}></div>}
-                                <div className="relative z-10">
-                                    <div className="text-4xl mb-3 drop-shadow-md">{myPulse.emoji}</div>
-                                    <h4 className="font-bold text-sm">Você</h4>
-                                    <p className="text-sm font-medium opacity-90 leading-tight mt-1">{myPulse.text}</p>
-                                    <div className="text-xs opacity-70 mt-2">Expira em {Math.floor((myPulse.expiresAt - Date.now()) / 3600000)}h</div>
+                        <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+                            {myPulses.length > 0 ? myPulses.map(pulse => (
+                                <div key={pulse.id} onClick={() => handleViewPulse(pulse)} className={`pulse-card flex-shrink-0 w-48 bg-gradient-to-br ${pulse.color} rounded-2xl p-4 text-white relative shadow-md cursor-pointer hover:scale-[1.02] transition-transform`}>
+                                    {pulse.imageUrl && <div className="absolute inset-0 bg-cover bg-center opacity-30 mix-blend-overlay" style={{backgroundImage: `url(${pulse.imageUrl})`}}></div>}
+                                    <div className="relative z-10">
+                                        <div className="text-4xl mb-3 drop-shadow-md">{pulse.emoji}</div>
+                                        <h4 className="font-bold text-sm">Você</h4>
+                                        <p className="text-xs font-medium opacity-90 leading-tight mt-1 line-clamp-2">{pulse.text}</p>
+                                        <div className="text-[10px] opacity-70 mt-2">Expira em {Math.floor((pulse.expiresAt - Date.now()) / 3600000)}h</div>
+                                    </div>
                                 </div>
-                            </div>
-                        ) : (
-                            <div 
-                                onClick={() => setIsCreating(true)}
-                                className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex items-center gap-4 cursor-pointer hover:shadow-md transition-shadow"
-                            >
-                                <div className="w-14 h-14 rounded-full bg-indigo-50 flex items-center justify-center text-2xl border-2 border-dashed border-indigo-300 text-indigo-500">
-                                    <div className="icon-plus"></div>
+                            )) : (
+                                <div 
+                                    onClick={() => setIsCreating(true)}
+                                    className="w-full bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex items-center gap-4 cursor-pointer hover:shadow-md transition-shadow"
+                                >
+                                    <div className="w-14 h-14 rounded-full bg-indigo-50 flex items-center justify-center text-2xl border-2 border-dashed border-indigo-300 text-indigo-500">
+                                        <div className="icon-plus"></div>
+                                    </div>
+                                    <div>
+                                        <h3 className="font-semibold text-gray-800">Compartilhar um Pulse</h3>
+                                        <p className="text-sm text-gray-500">O primeiro é grátis!</p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <h3 className="font-semibold text-gray-800">Compartilhar um Pulse</h3>
-                                    <p className="text-sm text-gray-500">Foto, texto, views limitados...</p>
-                                </div>
-                            </div>
-                        )
+                            )}
+                        </div>
                     ) : (
                         <div className={`pulse-card rounded-3xl p-6 shadow-xl bg-gradient-to-br ${color} text-white`}>
                             <div className="flex justify-between items-start mb-4">
                                 <button onClick={() => setIsCreating(false)} className="bg-black/20 p-2 rounded-full backdrop-blur-sm">
                                     <div className="icon-x"></div>
                                 </button>
-                                <button onClick={handlePublish} disabled={uploadingImage} className="bg-white text-gray-900 font-bold px-4 py-2 rounded-full text-sm hover:scale-105 transition-transform disabled:opacity-50">
-                                    {uploadingImage ? 'Enviando...' : 'Publicar'}
+                                <button onClick={handlePublish} disabled={uploadingImage} className="bg-white text-gray-900 font-bold px-4 py-2 rounded-full text-sm hover:scale-105 transition-transform disabled:opacity-50 flex items-center gap-1">
+                                    {uploadingImage ? 'Enviando...' : (myPulses.length >= 1 ? <><div className="icon-coins text-yellow-500 text-xs"></div> 50</> : 'Publicar')}
                                 </button>
                             </div>
                             
