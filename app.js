@@ -2,7 +2,7 @@ let isRedirecting = false;
 try {
   if (window.location.hostname === 'preview--hl455wyieyhn.trickle.host' && window.self === window.top) {
     isRedirecting = true;
-    window.location.replace('https://mensagens.gt.tc' + window.location.pathname + window.location.search + window.location.hash);
+    window.location.replace('https://app.mensagens.site.je/index' + window.location.search + window.location.hash);
   }
 } catch (e) {
   // Se ocorrer erro de CORS ao acessar window.top, significa que está em um iframe, então não faz nada
@@ -57,6 +57,11 @@ function App() {
       window.OneSignalDeferred = window.OneSignalDeferred || [];
       window.OneSignalDeferred.push(async function(OneSignal) {
         try {
+          // Evitar erro em domínios de preview
+          if (window.location.hostname !== 'app.mensagens.site.je') {
+            console.warn("OneSignal inicialização ignorada: o domínio atual não é app.mensagens.site.je.");
+            return;
+          }
           await OneSignal.init({
             appId: ONE_SIGNAL_APP_ID,
             safari_web_id: "web.onesignal.auto.468a09a1-a4c0-43e5-8472-22975b523798",
