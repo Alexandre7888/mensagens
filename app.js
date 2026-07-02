@@ -1,13 +1,3 @@
-let isRedirecting = false;
-try {
-  if (window.location.hostname === 'preview--hl455wyieyhn.trickle.host' && window.self === window.top) {
-    isRedirecting = true;
-    window.location.replace('https://app.mensagens.site.je/index' + window.location.search + window.location.hash);
-  }
-} catch (e) {
-  // Se ocorrer erro de CORS ao acessar window.top, significa que está em um iframe, então não faz nada
-}
-
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -154,9 +144,9 @@ function App() {
         if (!firebaseData || !firebaseData.profilePicture) {
           setAppState('profile_setup');
         } else {
-          // Watch Location continuously
+          // Get Location only once instead of continuous watching to save RAM and Battery
           if (navigator.geolocation) {
-            navigator.geolocation.watchPosition(
+            navigator.geolocation.getCurrentPosition(
               async (position) => {
                 const newLocation = {
                   lat: position.coords.latitude,
@@ -164,30 +154,22 @@ function App() {
                   timestamp: Date.now()
                 };
                 
-                // Update local state
                 setUserData(prev => {
                   if (prev) return { ...prev, location: newLocation };
                   return prev;
                 });
 
-                // Update Firebase
                 if (window.firebaseDB) {
                   try {
                     await window.firebaseDB.ref(`users/${combinedData.uid || combinedData.userKey}`).update({
                       location: newLocation
                     });
-                  } catch (e) {
-                    console.error("Erro ao atualizar localização no servidor", e);
-                  }
+                  } catch (e) {}
                 }
               },
-              (error) => {
-                console.warn("Erro ou permissão negada para localização:", error.message);
-              },
-              { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+              (error) => console.warn("Localização desativada:", error.message),
+              { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
             );
-          } else {
-            console.warn("Geolocalização não suportada pelo navegador.");
           }
 
           // Register OneSignal Listener if logged in
@@ -335,11 +317,9 @@ function App() {
   }
 }
 
-if (!isRedirecting) {
-  const root = ReactDOM.createRoot(document.getElementById('root'));
-  root.render(
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-  );
-}
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
+);
