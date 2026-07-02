@@ -1,5 +1,6 @@
 function ChatRoom({ user, chat }) {
     const db = window.firebaseDB;
+    const firestore = window.firebaseFirestore;
     const messagesEndRef = React.useRef(null);
     const scrollContainerRef = React.useRef(null);
     
@@ -36,6 +37,8 @@ function ChatRoom({ user, chat }) {
 
     // Ephemeral (Secret) state
     const [ephemeralMode, setEphemeralMode] = React.useState(false);
+
+    const encryptionKey = chat.type === 'group' ? chat.id : [user.id, chat.id].sort().join('_');
 
     const renderTextWithLinks = (text) => {
         if (!text) return null;
@@ -175,68 +178,101 @@ function ChatRoom({ user, chat }) {
         }
     };
 
+    const getFirestorePath = () => {
+        return chat.type === 'group' ? `groups/${chat.id}/messages` : `chats/${[user.id, chat.id].sort().join('_')}/messages`;
+    };
+
+    React.useEffect(() => {
+        if (!db) return;
+        
+        // Auto mark as read for incoming messages
+        const unreadMessages = messages.filter(m => m.senderId !== user.id && !m.read && !m.deletedByAdmin);
+        if (unreadMessages.length > 0) {
+            unreadMessages.forEach(msg => {
+                db.ref(`${refPath}/${msg.key}`).update({ read: true });
+                // Atualiza localmente
+                const localKey = `local_history_${chat.id}`;
+                let localHistory = JSON.parse(localStorage.getItem(localKey)) || [];
+                const idx = localHistory.findIndex(m => m.key === msg.key);
+                if (idx !== -1) {
+                    localHistory[idx].read = true;
+                    localStorage.setItem(localKey, JSON.stringify(localHistory));
+                }
+            });
+        }
+
+        // Apagar as próprias mensagens ou recebidas do servidor para economizar espaço
+        messages.forEach(msg => {
+            if (msg.senderId === user.id || msg.read) {
+                setTimeout(() => {
+                    db.ref(`${refPath}/${msg.key}`).remove().catch(()=>{});
+                }, 4000);
+            }
+        });
+
+    }, [messages, db, user.id, refPath, ephemeralMode]);
+
     React.useEffect(() => {
         if (!db) return;
         
         const messagesRef = db.ref(refPath);
         
-        messagesRef.on('value', (snapshot) => {
-            const data = snapshot.val();
-            if (data) {
-                const msgList = Object.keys(data).map(key => ({ ...data[key], key }));
-                cleanupOldFiles(msgList, refPath);
-                
-                // Mark as seen if not seen by me
-                msgList.forEach(msg => {
-                    if (msg.senderId !== user.id) {
-                        const seenBy = msg.seenBy || {};
-                        if (!seenBy[user.id]) {
-                            db.ref(`${refPath}/${msg.key}/seenBy/${user.id}`).set(true);
-                        }
-                    }
-                });
+        const handleData = (snapshot) => {
+            const msgList = [];
+            snapshot.forEach((child) => {
+                msgList.push({ ...child.val(), key: child.key });
+            });
+            
+            // Lógica de expiração e auto-exclusão
+            cleanupOldFiles(msgList, refPath);
+            
+            // Lógica de salvar no dispositivo e apagar do servidor
+            const localKey = `local_history_${chat.id}`;
+            let localHistory = [];
+            try {
+                localHistory = JSON.parse(localStorage.getItem(localKey)) || [];
+            } catch (e) {}
 
-                // Deletar qualquer mensagem do servidor se todos já visualizaram (100% lida)
-                msgList.forEach(msg => {
-                    if (msg.seenBy && msg.senderId === user.id) {
-                        const seenCount = Object.keys(msg.seenBy).length;
-                        if (chat.type === 'direct' && seenCount >= 1) {
-                            db.ref(`${refPath}/${msg.key}`).remove();
-                        } else if (chat.type === 'group' && seenCount >= 2) { // Simulação de 100% p/ grupos
-                            db.ref(`${refPath}/${msg.key}`).remove();
-                        }
-                    } else if (msg.seenBy && msg.senderId !== user.id) {
-                        // Se eu não sou o remetente e eu vi, remove local ou server
-                        if (chat.type === 'direct') {
-                            db.ref(`${refPath}/${msg.key}`).remove();
-                        }
-                    }
-                });
+            const merged = [...localHistory];
+            let hasNew = false;
 
-                setMessages(msgList);
-                
-                // Melhorando a lógica de scroll automático
-                const el = scrollContainerRef.current;
-                
-                // Só rola para baixo automaticamente se o usuário estiver muito perto do fim (margem pequena)
-                // ou se a última mensagem tiver sido enviada por ele mesmo.
-                const isAtBottom = el ? (el.scrollHeight - el.scrollTop - el.clientHeight <= 150) : true;
-                
-                const hasMyNewMessage = msgList.length > 0 && msgList[msgList.length - 1].senderId === user.id;
-
-                if ((isAtBottom || hasMyNewMessage) && !isPulling && !selectionMode) {
-                    setTimeout(() => {
-                        if (messagesEndRef.current) {
-                            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                        }
-                    }, 50);
+            msgList.forEach(msg => {
+                const exists = merged.find(m => m.key === msg.key);
+                if (!exists) {
+                    merged.push(msg);
+                    hasNew = true;
+                } else if (msg.edited || msg.deletedByAdmin) {
+                    const idx = merged.findIndex(m => m.key === msg.key);
+                    merged[idx] = { ...merged[idx], ...msg };
+                    hasNew = true;
                 }
-            } else {
-                setMessages([]);
-            }
-        });
+            });
 
-        return () => messagesRef.off();
+            if (hasNew) {
+                if (merged.length > 2000) merged.splice(0, merged.length - 2000);
+                localStorage.setItem(localKey, JSON.stringify(merged));
+            }
+            
+            setMessages(merged);
+            
+            const el = scrollContainerRef.current;
+            const isAtBottom = el ? (el.scrollHeight - el.scrollTop - el.clientHeight <= 150) : true;
+            const hasMyNewMessage = msgList.length > 0 && msgList[msgList.length - 1].senderId === user.id;
+
+            if ((isAtBottom || hasMyNewMessage) && !isPulling && !selectionMode) {
+                setTimeout(() => {
+                    if (messagesEndRef.current) {
+                        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                    }
+                }, 50);
+            }
+        };
+
+        messagesRef.on('value', handleData);
+
+        return () => {
+            messagesRef.off('value', handleData);
+        };
     }, [chat.id, db, user.id, isPulling, ephemeralMode, selectionMode]);
 
     const showToastMessage = (message, type = "info") => {
@@ -278,7 +314,7 @@ function ChatRoom({ user, chat }) {
     const handleCopySelected = () => {
         const textToCopy = messages
             .filter(m => selectedMessages.includes(m.key) && m.type === 'text')
-            .map(m => m.text)
+            .map(m => window.CryptoUtils ? window.CryptoUtils.decrypt(m.text, encryptionKey) : m.text)
             .join('\n\n');
         
         if (textToCopy) {
@@ -520,9 +556,12 @@ function ChatRoom({ user, chat }) {
             return;
         }
         
+        const rawText = messageInput.trim();
+        const encryptedText = window.CryptoUtils ? window.CryptoUtils.encrypt(rawText, encryptionKey) : rawText;
+
         if (editingMessage) {
             await db.ref(`${refPath}/${editingMessage.key}`).update({
-                text: messageInput.trim(),
+                text: encryptedText,
                 edited: true
             });
             setEditingMessage(null);
@@ -531,19 +570,21 @@ function ChatRoom({ user, chat }) {
         }
 
         const basePath = refPath.split('/messages')[0];
-        db.ref(`${basePath}/typing/${user.id}`).remove();
+        if (db) {
+            db.ref(`${basePath}/typing/${user.id}`).remove();
+        }
         if (typingTimer.current) clearTimeout(typingTimer.current);
 
         const msgData = {
             senderId: user.id,
             senderName: user.name,
             type: 'text',
-            text: messageInput.trim(),
+            text: encryptedText,
             timestamp: Date.now(),
             ephemeral: ephemeralMode,
             replyTo: replyingTo ? {
                 id: replyingTo.key,
-                text: replyingTo.type === 'text' ? replyingTo.text : (replyingTo.fileName || 'Mídia'),
+                text: replyingTo.type === 'text' ? (window.CryptoUtils ? window.CryptoUtils.encrypt(replyingTo.text, encryptionKey) : replyingTo.text) : (replyingTo.fileName || 'Mídia'),
                 senderName: replyingTo.senderName
             } : null
         };
@@ -737,14 +778,15 @@ function ChatRoom({ user, chat }) {
     };
 
     const [showAttachMenu, setShowAttachMenu] = React.useState(false);
+    
     const visibleMessages = messages.filter(m => !localDeletedIds.includes(m.key));
 
     return (
-        <div className={`flex flex-col h-[100dvh] w-full relative transition-colors duration-500 overflow-hidden ${ephemeralMode ? 'bg-gray-900' : (appSettings.theme === 'escuro' || (appSettings.theme==='sistema' && document.documentElement.classList.contains('dark')) ? 'bg-gray-900' : 'bg-[#ece5dd]')}`} data-name="chat-room" data-file="components/ChatRoom.js">
+        <div className={`flex flex-col h-[100dvh] max-h-[100dvh] w-full relative transition-colors duration-500 overflow-hidden ${ephemeralMode ? 'bg-gray-950' : (appSettings.theme === 'escuro' || (appSettings.theme==='sistema' && document.documentElement.classList.contains('dark')) ? 'bg-gray-900' : 'bg-slate-50')}`} style={{ width: '100vw', maxWidth: '100%' }} data-name="chat-room" data-file="components/ChatRoom.js">
             {appSettings.wallpaper === 'padrao' ? (
-                <div className="absolute inset-0 opacity-5 pointer-events-none z-0" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
+                <div className="absolute inset-0 opacity-[0.03] pointer-events-none z-0" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
             ) : (
-                <div className="absolute inset-0 bg-cover bg-center opacity-20 pointer-events-none z-0" style={{ backgroundImage: `url(https://images.unsplash.com/photo-1557682250-33bd709cbe85?w=1000&q=80)` }}></div>
+                <div className="absolute inset-0 bg-cover bg-center opacity-10 pointer-events-none z-0" style={{ backgroundImage: `url(https://images.unsplash.com/photo-1557682250-33bd709cbe85?w=1000&q=80)` }}></div>
             )}
 
             {/* Selection Header */}
@@ -788,27 +830,25 @@ function ChatRoom({ user, chat }) {
                     </div>
                 </div>
             ) : (
-                <div className={`flex-none px-4 py-3 shadow-md z-50 flex justify-between items-center ${ephemeralMode ? 'bg-gray-800 text-white' : 'bg-white'}`}>
-                    <div className="flex items-center gap-3">
-                        <button onClick={() => window.location.href = 'index.html'} className="p-2 -ml-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors">
+                <div className={`flex-none px-3 sm:px-4 py-3 shadow-sm z-50 flex justify-between items-center border-b ${ephemeralMode ? 'bg-gray-900 border-gray-800 text-white' : 'bg-white border-gray-200 text-gray-800'}`}>
+                    <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0 mr-2">
+                        <button onClick={() => window.location.href = 'index.html'} className={`p-1.5 sm:p-2 -ml-1 sm:-ml-2 rounded-full transition-colors flex-shrink-0 ${ephemeralMode ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-500 hover:bg-gray-100'}`}>
                             <div className="icon-arrow-left text-xl"></div>
                         </button>
-                        <div className="relative">
-                            <div className={`w-11 h-11 rounded-full flex items-center justify-center text-white font-bold shadow-sm cursor-pointer ${ephemeralMode ? 'bg-purple-600' : 'bg-gradient-to-br from-indigo-400 to-purple-500'}`}>
+                        <div className="relative flex-shrink-0 cursor-pointer" onClick={() => window.location.href = `info.html?chatId=${chat.id}`}>
+                            <div className={`w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center text-white font-bold shadow-sm ${ephemeralMode ? 'bg-purple-600' : 'bg-gradient-to-br from-indigo-500 to-purple-600'}`}>
                                 {chat.name.charAt(0).toUpperCase()}
                             </div>
-                            {chat.type === 'direct' && <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-white rounded-full"></div>}
+                            {chat.type === 'direct' && <div className={`absolute bottom-0 right-0 w-3 h-3 sm:w-3.5 sm:h-3.5 bg-green-500 border-2 rounded-full ${ephemeralMode ? 'border-gray-900' : 'border-white'}`}></div>}
                         </div>
-                        <div className="cursor-pointer flex flex-col" onClick={() => window.location.href = `info.html?chatId=${chat.id}`}>
-                            <div className="flex items-center gap-2">
-                                <h3 className="font-bold text-lg leading-tight hover:underline">{window.CensorUtils ? window.CensorUtils.censor(chat.name) : chat.name}</h3>
-                            </div>
-                            <p className={`text-xs font-medium ${ephemeralMode ? 'text-purple-400' : 'text-green-500'}`}>
+                        <div className="cursor-pointer flex flex-col flex-1 min-w-0" onClick={() => window.location.href = `info.html?chatId=${chat.id}`}>
+                            <h3 className="font-bold text-base sm:text-lg leading-tight hover:underline truncate">{window.CensorUtils ? window.CensorUtils.censor(chat.name) : chat.name}</h3>
+                            <p className={`text-xs font-medium truncate ${ephemeralMode ? 'text-purple-400' : 'text-indigo-500'}`}>
                                 {ephemeralMode ? 'Modo Secreto (24h)' : 'Toque para ver info'}
                             </p>
                         </div>
                     </div>
-                    <div className="flex gap-1">
+                    <div className="flex gap-0 sm:gap-1 flex-shrink-0">
                         {(() => {
                             let canMakeCalls = true;
                             if (chat.type === 'group') {
@@ -848,6 +888,9 @@ function ChatRoom({ user, chat }) {
             >
                 {visibleMessages.map((msg) => {
                     const isSelected = selectedMessages.includes(msg.key);
+                    const decryptedText = (msg.type === 'text' && window.CryptoUtils) ? window.CryptoUtils.decrypt(msg.text, encryptionKey) : msg.text;
+                    const decryptedReplyText = (msg.replyTo && msg.replyTo.type === 'text' && window.CryptoUtils) ? window.CryptoUtils.decrypt(msg.replyTo.text, encryptionKey) : (msg.replyTo?.text || '');
+                    
                     return (
                         <div key={msg.key} 
                              className={`flex ${msg.senderId === user.id ? 'justify-end' : 'justify-start'} cursor-pointer`}
@@ -870,22 +913,22 @@ function ChatRoom({ user, chat }) {
                                     </div>
                                 </div>
                             )}
-                            <div className={`max-w-[85%] md:max-w-[70%] px-4 py-2.5 relative shadow-md transition-all ${isSelected ? 'scale-95 opacity-90' : ''} 
+                            <div className={`max-w-[85%] md:max-w-[70%] px-4 py-3 relative shadow-sm transition-all ${isSelected ? 'scale-95 opacity-90' : ''} 
                                 ${appSettings.animations === 'deslizar' ? 'animate-fade-in-up' : appSettings.animations === 'bounce' ? 'animate-bounce' : ''}
                                 ${appSettings.bubbleStyle === 'quadrado' ? 'rounded-none' : appSettings.bubbleStyle === 'bolha' ? 'rounded-full px-6' : 'rounded-2xl'}
-                                ${msg.senderId === user.id ? `bg-gradient-to-r from-indigo-600 to-indigo-500 text-white ${appSettings.bubbleStyle === 'quadrado' ? '' : 'rounded-br-sm'}` : (ephemeralMode || document.documentElement.classList.contains('dark') ? `bg-gray-800 text-gray-100 border border-gray-700 ${appSettings.bubbleStyle === 'quadrado' ? '' : 'rounded-bl-sm'}` : `bg-white text-gray-800 border border-gray-100 ${appSettings.bubbleStyle === 'quadrado' ? '' : 'rounded-bl-sm'}`)}`}>
+                                ${msg.senderId === user.id ? `bg-gradient-to-br from-indigo-500 to-blue-600 text-white ${appSettings.bubbleStyle === 'quadrado' ? '' : 'rounded-br-none'}` : (ephemeralMode || document.documentElement.classList.contains('dark') ? `bg-gray-800 text-gray-100 border border-gray-700 ${appSettings.bubbleStyle === 'quadrado' ? '' : 'rounded-bl-none'}` : `bg-white text-slate-800 border border-slate-200 ${appSettings.bubbleStyle === 'quadrado' ? '' : 'rounded-bl-none'}`)}`}>
                                 {msg.ephemeral && <div className="icon-timer text-xs absolute top-1 right-2 opacity-50"></div>}
                                 
                                 {msg.replyTo && (
                                     <div className={`mb-2 pl-2 border-l-4 border-indigo-400 rounded bg-black/5 p-2 text-sm ${msg.senderId === user.id ? 'text-indigo-100 border-white' : 'text-gray-600'}`}>
                                         <div className="font-bold text-xs opacity-70 mb-0.5">{window.CensorUtils ? window.CensorUtils.censor(msg.replyTo.senderName) : msg.replyTo.senderName}</div>
-                                        <div className="truncate italic opacity-90">{window.CensorUtils ? window.CensorUtils.censor(msg.replyTo.text) : msg.replyTo.text}</div>
+                                        <div className="truncate italic opacity-90">{window.CensorUtils ? window.CensorUtils.censor(decryptedReplyText) : decryptedReplyText}</div>
                                     </div>
                                 )}
 
                                 {msg.type === 'text' && (
                                     <div className={`break-words mt-1 ${msg.deletedByAdmin ? 'italic opacity-80' : ''}`}>
-                                        {msg.deletedByAdmin ? msg.text : renderTextWithLinks(msg.text)}
+                                        {msg.deletedByAdmin ? decryptedText : renderTextWithLinks(decryptedText)}
                                         {msg.edited && !msg.deletedByAdmin && <span className="text-[10px] ml-2 opacity-70">(editado)</span>}
                                     </div>
                                 )}
@@ -899,18 +942,20 @@ function ChatRoom({ user, chat }) {
                                     </div>
                                 )}
                                 {msg.type === 'image' && msg.fileData && <img src={msg.fileData} alt="Shared" className="max-w-full rounded mt-2 mb-1" />}
-                                {msg.type === 'video' && msg.fileData && <window.CustomVideoPlayer src={msg.fileData} />}
+                                {msg.type === 'video' && msg.fileData && (
+                                    <div className="max-w-full overflow-hidden rounded-lg mt-2 mb-1 bg-black flex justify-center items-center">
+                                        <window.CustomVideoPlayer src={msg.fileData} />
+                                    </div>
+                                )}
                                 {msg.type === 'audio' && msg.fileData && <window.CustomAudioPlayer src={msg.fileData} isOwn={msg.senderId === user.id} />}
                                 
                                 <div className={`text-[10px] mt-1 flex justify-between items-center w-full ${msg.senderId === user.id ? 'text-indigo-200' : (ephemeralMode ? 'text-gray-400' : 'text-gray-400')}`}>
-                                    <div className="flex gap-2">
-                                        {msg.senderId !== user.id && !msg.deletedByAdmin && (
-                                            <button onClick={(e) => {
-                                                e.stopPropagation();
-                                                showToastMessage("Mensagem visualizada", "success");
-                                            }} className="hover:text-indigo-500 transition-colors" title="Visualizar sem confirmar leitura">
-                                                <div className="icon-eye text-[12px]"></div>
-                                            </button>
+                                    <div className="flex gap-2 items-center">
+                                        {msg.senderId === user.id && msg.read && (
+                                            <div className="icon-check-check text-[14px] text-blue-300" title="Lida"></div>
+                                        )}
+                                        {msg.senderId === user.id && !msg.read && (
+                                            <div className="icon-check text-[14px] opacity-70" title="Enviada"></div>
                                         )}
                                     </div>
                                     <div className="flex gap-1 items-center">
@@ -977,9 +1022,9 @@ function ChatRoom({ user, chat }) {
                 </button>
             )}
             
-            <div className={`flex-none p-2 sm:p-3 shadow-[0_-2px_15px_rgba(0,0,0,0.08)] flex flex-col z-50 w-full box-border max-w-full overflow-hidden ${ephemeralMode ? 'bg-gray-800' : 'bg-white'}`}>
+            <div className={`flex-none p-2 sm:p-3 border-t flex flex-col z-50 w-full box-border max-w-full overflow-hidden ${ephemeralMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
                 {replyingTo && (
-                    <div className="flex items-center justify-between bg-indigo-50 p-2 px-4 rounded-t-xl border-l-4 border-indigo-500 -mt-3 mb-2 animate-fade-in-up flex-shrink-0">
+                    <div className={`flex items-center justify-between p-2 px-4 rounded-t-xl border-l-4 -mt-3 mb-2 animate-fade-in-up flex-shrink-0 ${ephemeralMode ? 'bg-gray-800 border-purple-500' : 'bg-indigo-50 border-indigo-500'}`}>
                         <div className="overflow-hidden min-w-0">
                             <span className="text-xs font-bold text-indigo-600 block">Respondendo a {window.CensorUtils ? window.CensorUtils.censor(replyingTo.senderName) : replyingTo.senderName}</span>
                             <span className="text-sm text-gray-600 truncate block">{replyingTo.type === 'text' ? (window.CensorUtils ? window.CensorUtils.censor(replyingTo.text) : replyingTo.text) : replyingTo.fileName || 'Mídia'}</span>

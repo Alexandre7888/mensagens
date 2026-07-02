@@ -1,4 +1,4 @@
-function CameraCapture({ onCapture, onClose }) {
+function CameraCapture({ onCapture, onClose, photoOnly = false }) {
     const videoRef = React.useRef(null);
     const canvasRef = React.useRef(null);
     const arCanvasRef = React.useRef(null);
@@ -354,16 +354,17 @@ function CameraCapture({ onCapture, onClose }) {
     };
 
     const handleButtonPress = () => {
+        if (photoOnly) return;
         holdTimerRef.current = setTimeout(() => {
             startRecording();
         }, 500); // 500ms hold to record video
     };
 
     const handleButtonRelease = () => {
-        if (holdTimerRef.current) {
+        if (!photoOnly && holdTimerRef.current) {
             clearTimeout(holdTimerRef.current);
         }
-        if (isRecording) {
+        if (!photoOnly && isRecording) {
             stopRecording();
         } else {
             // Tap
@@ -453,7 +454,7 @@ function CameraCapture({ onCapture, onClose }) {
                 {showFlash && <div className="absolute inset-0 bg-white z-30 animate-fade-out"></div>}
                 
                 {/* Recording Timer */}
-                {isRecording && (
+                {!photoOnly && isRecording && (
                     <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-red-500/80 px-4 py-1 rounded-full flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full bg-white animate-pulse"></div>
                         <span className="text-white font-mono font-bold tracking-wider">
@@ -530,7 +531,7 @@ function CameraCapture({ onCapture, onClose }) {
                     </div>
                     
                     {/* Progress Circle (if recording) */}
-                    {isRecording && (
+                    {!photoOnly && isRecording && (
                         <svg className="absolute inset-0 w-[86px] h-[86px] -rotate-90 pointer-events-none">
                             <circle 
                                 cx="43" cy="43" r="41" 

@@ -22,7 +22,6 @@ function AdminPanel() {
       const usersSnap = await window.firebaseDB.ref('users').once('value');
       const bannedSnap = await window.firebaseDB.ref('banned_users').once('value');
       const groupsSnap = await window.firebaseDB.ref('groups').once('value');
-      const appealsSnap = await window.firebaseDB.ref('verificacoes').once('value');
       
       const usersList = [];
       usersSnap.forEach(child => {
@@ -40,10 +39,11 @@ function AdminPanel() {
       });
 
       const appealsList = [];
-      if (appealsSnap.exists()) {
-        appealsSnap.forEach(child => {
-          appealsList.push({ id: child.key, ...child.val() });
-        });
+      if (window.firebaseFirestore) {
+          const appealsSnap = await window.firebaseFirestore.collection('face_verifications').get();
+          appealsSnap.forEach(doc => {
+              appealsList.push({ id: doc.id, ...doc.data() });
+          });
       }
 
       const templatesSnap = await window.firebaseDB.ref('ban_templates').once('value');
@@ -65,7 +65,12 @@ function AdminPanel() {
 
   const handleUpdateAppealStatus = async (appealId, status, bUser) => {
     try {
-      await window.firebaseDB.ref(`verificacoes/${appealId}`).update({ status });
+      if (window.firebaseFirestore) {
+          await window.firebaseFirestore.collection('face_verifications').doc(appealId).update({ status });
+      } else {
+          await window.firebaseDB.ref(`verificacoes/${appealId}`).update({ status });
+      }
+      
       if (status === 'aprovado' && bUser) {
         // Se aprovado, desbane automaticamente
         if (bUser.backup) {
@@ -328,27 +333,50 @@ function AdminPanel() {
                         {userAppeal && (
                           <div className="mb-4 bg-gray-900 p-3 rounded-lg border border-yellow-900/50">
                             <h4 className="text-yellow-500 font-bold text-xs mb-2 flex items-center gap-2">
-                              <div className="icon-file-text"></div> Apelação Recebida
+                              <div className="icon-scan-face"></div> Verificação Facial (Apelação)
                             </h4>
-                            <p className="text-xs text-gray-400 mb-1">Status: <span className="font-bold uppercase text-white">{userAppeal.status}</span></p>
-                            <p className="text-xs text-gray-400 mb-2">Nascimento: <span className="text-white">{userAppeal.dataNascimento}</span></p>
+                            <p className="text-xs text-gray-400 mb-2">Status: <span className="font-bold uppercase text-white">{userAppeal.status}</span></p>
+                            
                             {userAppeal.fotoUrl && (
-                              <img src={userAppeal.fotoUrl} alt="Documento" className="w-full h-32 object-cover rounded mb-2 border border-gray-700" />
+                              <div className="relative mb-3 flex justify-center bg-gray-800 rounded-lg p-2 border border-gray-700">
+                                  <img src={userAppeal.fotoUrl} alt="Rosto Capturado" className="w-24 h-24 object-cover rounded-full border-2 border-indigo-500" />
+                              </div>
+                            )}
+
+                            {userAppeal.metadata && (
+                              <div className="grid grid-cols-2 gap-2 mb-3">
+                                  <div className="bg-gray-800 p-1.5 rounded border border-gray-700">
+                                      <span className="text-[10px] text-gray-500 block">Qualidade</span>
+                                      <span className="text-xs font-bold text-green-400">{userAppeal.metadata.qualityScore}%</span>
+                                  </div>
+                                  <div className="bg-gray-800 p-1.5 rounded border border-gray-700">
+                                      <span className="text-[10px] text-gray-500 block">Simetria</span>
+                                      <span className="text-xs font-bold text-indigo-400">{(userAppeal.metadata.symmetryScore * 100).toFixed(1)}%</span>
+                                  </div>
+                                  <div className="bg-gray-800 p-1.5 rounded border border-gray-700">
+                                      <span className="text-[10px] text-gray-500 block">Dist. Olhos</span>
+                                      <span className="text-xs font-bold text-gray-300">{userAppeal.metadata.eyeDistance}</span>
+                                  </div>
+                                  <div className="bg-gray-800 p-1.5 rounded border border-gray-700">
+                                      <span className="text-[10px] text-gray-500 block">Captura</span>
+                                      <span className="text-[10px] font-bold text-gray-300">{new Date(userAppeal.timestamp).toLocaleTimeString()}</span>
+                                  </div>
+                              </div>
                             )}
                             
                             {userAppeal.status === 'pendente' && (
                               <div className="flex gap-2 mt-2">
                                 <button 
                                   onClick={() => handleUpdateAppealStatus(userAppeal.id, 'aprovado', bUser)}
-                                  className="flex-1 py-1.5 bg-green-600 text-white rounded text-xs font-bold hover:bg-green-700"
+                                  className="flex-1 py-1.5 bg-green-600 text-white rounded text-xs font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-1"
                                 >
-                                  Aprovar
+                                  <div className="icon-check"></div> Aprovar
                                 </button>
                                 <button 
                                   onClick={() => handleUpdateAppealStatus(userAppeal.id, 'rejeitado', null)}
-                                  className="flex-1 py-1.5 bg-red-600 text-white rounded text-xs font-bold hover:bg-red-700"
+                                  className="flex-1 py-1.5 bg-red-600 text-white rounded text-xs font-bold hover:bg-red-700 transition-colors flex items-center justify-center gap-1"
                                 >
-                                  Rejeitar
+                                  <div className="icon-x"></div> Rejeitar
                                 </button>
                               </div>
                             )}

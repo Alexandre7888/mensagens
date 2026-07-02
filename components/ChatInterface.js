@@ -105,26 +105,7 @@ function ChatInterface({ user, onLogout }) {
             }
         });
 
-        // Init WebRTC
-        if (window.WebRTCManager) {
-            webrtcManager.current = new window.WebRTCManager(user.id, (peerId, base64Data, fileType) => {
-                const chatId = [user.id, peerId].sort().join('_');
-                db.ref(`chats/${chatId}/messages`).push({
-                    senderId: peerId,
-                    type: fileType,
-                    fileData: base64Data,
-                    timestamp: Date.now(),
-                    isP2P: true
-                });
-            });
-
-            // Handle incoming calls
-            if (webrtcManager.current.peer) {
-                webrtcManager.current.peer.on('call', (call) => {
-                    setCallState({ type: 'incoming', call: call, isVideo: call.metadata?.isVideo, name: 'Usuário' });
-                });
-            }
-        }
+        // WebRTC calls listener is handled globally now.
 
         // Initial check for OneSignal subscription
         if (window.OneSignalDeferred) {
@@ -464,7 +445,7 @@ function ChatInterface({ user, onLogout }) {
 
     return (
         <div className="flex h-full w-full overflow-hidden bg-white" data-name="chat-interface" data-file="components/ChatInterface.js">
-            <div className="w-1/3 min-w-[300px] border-r flex flex-col bg-gray-50">
+            <div className="w-full md:w-1/3 md:max-w-sm border-r flex flex-col bg-gray-50 h-full">
                 <div className="p-4 flex justify-between items-center border-b bg-white">
                     <div className="flex items-center gap-3">
                         <div className="relative">
