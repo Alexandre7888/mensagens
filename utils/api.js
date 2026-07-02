@@ -170,17 +170,12 @@ const api = {
         // Usando o endpoint do Google Script conforme a documentação fornecida
         const scriptUrl = `https://script.google.com/macros/s/AKfycbyAJYuSOdIa2ijOToQy0X_ZgM7N7e3lH5fPYORipXumqFw9OaNQ7CbYlz8oefsaL7qu/exec?ids=${pushId}&titulo=${titulo}&mensagem=${mensagem}`;
 
-        // Usando o Proxy para evitar bloqueios de CORS
+        // Tentando diretamente com no-cors para evitar problemas com o proxy
         try {
-            const response = await fetch(`https://proxy-api.trickle-app.host/?url=${encodeURIComponent(scriptUrl)}`);
-            const result = await response.text();
-            console.log("Status do envio da notificação via Google Script:", result);
+            await fetch(scriptUrl, { mode: 'no-cors' });
+            console.log("Notificação enviada (no-cors)");
         } catch (e) {
-            try {
-                await fetch(scriptUrl, { mode: 'no-cors' });
-            } catch (err) {
-                // Silencioso
-            }
+            console.error("Erro ao enviar notificação:", e);
         }
       }
     } catch (error) {

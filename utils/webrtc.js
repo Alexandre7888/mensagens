@@ -12,7 +12,11 @@ class WebRTCManager {
 
     setupConnection(conn) {
         conn.on('data', (data) => {
-            if (data.type === 'chunk') {
+            if (data.type === 'text_msg') {
+                if (this.onMessageReceived) {
+                    this.onMessageReceived(conn.peer, data.content, 'text', data.msgData);
+                }
+            } else if (data.type === 'chunk') {
                 if (!this.chunks[data.id]) this.chunks[data.id] = [];
                 this.chunks[data.id][data.index] = data.chunk;
                 
@@ -21,7 +25,7 @@ class WebRTCManager {
                     const fullBase64 = this.chunks[data.id].join('');
                     delete this.chunks[data.id];
                     if (this.onMessageReceived) {
-                        this.onMessageReceived(conn.peer, fullBase64, data.fileType);
+                        this.onMessageReceived(conn.peer, fullBase64, data.fileType, data.msgData);
                     }
                 }
             }
@@ -38,7 +42,7 @@ class WebRTCManager {
         return this.connections[cleanId];
     }
 
-    sendBase64InChunks(targetId, base64Str, fileType) {
+    sendBase64InChunks(targetId, base64Str, fileType, msgData = {}) {
         const cleanId = targetId.replace(/[^a-zA-Z0-9]/g, '');
         const conn = this.connect(cleanId);
         const chunkSize = 16384; // 16kb chunks
@@ -60,7 +64,8 @@ class WebRTCManager {
                     fileType, 
                     chunk: chunks[index], 
                     index, 
-                    total: chunks.length 
+                    total: chunks.length,
+                    msgData
                 });
                 setTimeout(() => sendNext(index + 1), 20); // Delay for buffer
             };
@@ -73,6 +78,25 @@ class WebRTCManager {
         };
 
         sendNext(0);
+    }
+
+    sendTextMessage(targetId, text, msgData = {}) {
+        const cleanId = targetId.replace(/[^a-zA-Z0-9]/g, '');
+        const conn = this.connect(cleanId);
+        
+        const sendPacket = () => {
+            conn.send({
+                type: 'text_msg',
+                content: text,
+                msgData
+            });
+        };
+
+        if (conn.open) {
+            sendPacket();
+        } else {
+            conn.on('open', sendPacket);
+        }
     }
 }
 window.WebRTCManager = WebRTCManager;
