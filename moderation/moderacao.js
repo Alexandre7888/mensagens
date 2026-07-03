@@ -1,13 +1,16 @@
 // ================================================================
-// MODERACAO.JS - SISTEMA DE MODERAÇÃO (FUNCIONA 100%)
+// MODERACAO.JS - SISTEMA DE MODERAÇÃO (PALAVRAS APENAS NO JSON)
 // ================================================================
 
 const FIREBASE_URL = 'https://html-785e3-default-rtdb.firebaseio.com';
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyAJYuSOdIa2ijOToQy0X_ZgM7N7e3lH5fPYORipXumqFw9OaNQ7CbYlz8oefsaL7qu/exec';
+const ADMIN_ID = '75da7f5d-3208-4b64-b008-7ee4e2a3c59e';
+
 let palavrasProibidas = [];
 let configCarregada = false;
 
 // ================================================================
-// MAPEAMENTO DE SUBSTITUIÇÕES
+// MAPEAMENTO DE SUBSTITUIÇÕES (APENAS CARACTERES)
 // ================================================================
 
 const substituicoes = {
@@ -81,7 +84,7 @@ const substituicoes = {
 };
 
 // ================================================================
-// FUNÇÃO 1: CARREGAR PALAVRAS DO JSON
+// FUNÇÃO 1: CARREGAR PALAVRAS DO JSON (ÚNICA FONTE)
 // ================================================================
 
 async function carregarPalavras() {
@@ -90,7 +93,7 @@ async function carregarPalavras() {
         const resposta = await fetch('palavras.json');
         
         if (!resposta.ok) {
-            throw new Error(`Erro HTTP: ${resposta.status}`);
+            throw new Error(`Erro HTTP: ${resposta.status} - Arquivo palavras.json não encontrado`);
         }
         
         const dados = await resposta.json();
@@ -101,33 +104,28 @@ async function carregarPalavras() {
         } else if (dados.palavrasProibidas && Array.isArray(dados.palavrasProibidas)) {
             palavrasProibidas = dados.palavrasProibidas;
         } else {
-            throw new Error('Formato inválido do JSON');
+            throw new Error('Formato inválido do JSON. Deve ser um array de palavras.');
+        }
+        
+        if (palavrasProibidas.length === 0) {
+            throw new Error('Nenhuma palavra encontrada no JSON');
         }
         
         configCarregada = true;
-        console.log('✅ Palavras carregadas:', palavrasProibidas.length);
+        console.log('✅ Palavras carregadas do JSON:', palavrasProibidas.length);
         console.log('📝 Palavras:', palavrasProibidas);
         return palavrasProibidas;
     } catch (erro) {
-        console.error('❌ Erro ao carregar palavras:', erro);
-        // SE NÃO CARREGAR, USA LISTA PADRÃO (FALLBACK)
-        palavrasProibidas = [
-            "porra", "caralho", "merda", "buceta", "puta",
-            "viado", "otario", "filhadaputa", "cuzao", "arrombado",
-            "fuder", "fodase", "cacete", "piranha", "vagabunda",
-            "bosta", "cu", "trouxa", "imbecil", "idiota",
-            "babaca", "escroto", "nojento", "lixo", "desgracado",
-            "maldito", "infeliz", "monta", "cuzão", "pau no cu",
-            "vai tomar no cu", "filho da puta", "vai se fuder"
-        ];
-        configCarregada = true;
-        console.log('⚠️ Usando lista de fallback:', palavrasProibidas.length);
-        return palavrasProibidas;
+        console.error('❌ Erro ao carregar palavras:', erro.message);
+        console.error('⚠️ Verifique se o arquivo palavras.json existe e está no formato correto');
+        palavrasProibidas = [];
+        configCarregada = false;
+        return [];
     }
 }
 
 // ================================================================
-// FUNÇÃO 2: LIMPAR TEXTO (REMOVE TUDO QUE NÃO É LETRA)
+// FUNÇÃO 2: LIMPAR TEXTO
 // ================================================================
 
 function limparTexto(texto) {
@@ -145,13 +143,11 @@ function gerarVariacoes(texto) {
     const resultados = new Set();
     const textoOriginal = texto.toLowerCase();
     
-    // Apenas letras
     const apenasLetras = limparTexto(textoOriginal);
     if (apenasLetras.length > 0) {
         resultados.add(apenasLetras);
     }
     
-    // Substituir caracteres especiais
     const chars = textoOriginal.split('');
     const opcoesPorChar = chars.map(char => {
         const opcoes = substituicoes[char] || [char];
@@ -177,7 +173,6 @@ function gerarVariacoes(texto) {
     
     combinar(0, []);
     
-    // Remover repetidos
     const semRepetidos = textoOriginal.replace(/(.)\1+/g, '$1');
     if (semRepetidos !== textoOriginal) {
         const limpoRepetidos = limparTexto(semRepetidos);
@@ -186,7 +181,6 @@ function gerarVariacoes(texto) {
         }
     }
     
-    // Letras na ordem
     const letrasNaOrdem = textoOriginal.match(/[a-zA-ZÀ-ÿ]/g) || [];
     if (letrasNaOrdem.length > 0) {
         const ordemLetras = letrasNaOrdem.join('');
@@ -262,32 +256,27 @@ function verificarPalavraProibida(texto) {
         
         // 1: Palavra exata
         if (textoLimpo === pLower) {
-            console.log(`✅ Detectado: "${textoLimpo}" == "${pLower}"`);
             return palavraProibida;
         }
         
         // 2: Contém a palavra
         if (textoLimpo.includes(pLower)) {
-            console.log(`✅ Detectado: "${textoLimpo}" contém "${pLower}"`);
             return palavraProibida;
         }
         
         // 3: Sem caracteres especiais
         const semEspeciais = limparTexto(textoLimpo);
         if (semEspeciais === pLower || semEspeciais.includes(pLower)) {
-            console.log(`✅ Detectado: "${semEspeciais}" == "${pLower}"`);
             return palavraProibida;
         }
         
         // 4: Letras espalhadas
         if (verificarLetrasEspalhadas(textoLimpo, pLower)) {
-            console.log(`✅ Detectado: Letras espalhadas "${pLower}" em "${textoLimpo}"`);
             return palavraProibida;
         }
         
         // 5: Similaridade
         if (calcularSimilaridade(textoLimpo, pLower) > 0.75) {
-            console.log(`✅ Detectado: Similaridade ${calcularSimilaridade(textoLimpo, pLower)} entre "${textoLimpo}" e "${pLower}"`);
             return palavraProibida;
         }
     }
@@ -296,7 +285,72 @@ function verificarPalavraProibida(texto) {
 }
 
 // ================================================================
-// FUNÇÃO 7: MODERAR MENSAGEM
+// FUNÇÃO 7: ENVIAR NOTIFICAÇÃO PARA ADMIN (SÓ BLOQUEADOS)
+// ================================================================
+
+async function enviarNotificacaoAdmin(mensagem, userId, palavraDetectada) {
+    try {
+        const titulo = encodeURIComponent(`🚫 Mensagem Bloqueada - ${new Date().toLocaleString()}`);
+        const mensagemNotificacao = encodeURIComponent(
+            `Usuário: ${userId}\n` +
+            `Mensagem: ${mensagem}\n` +
+            `Palavra Detectada: ${palavraDetectada}\n` +
+            `Data: ${new Date().toLocaleString()}`
+        );
+        
+        const url = `${GOOGLE_SCRIPT_URL}?ids=${ADMIN_ID}&titulo=${titulo}&mensagem=${mensagemNotificacao}`;
+        
+        console.log('📤 Enviando notificação para ADMIN:', ADMIN_ID);
+        console.log('📝 URL:', url);
+        
+        const resposta = await fetch(url, {
+            method: 'GET',
+            mode: 'no-cors' // Importante para Google Apps Script
+        });
+        
+        console.log('✅ Notificação enviada com sucesso!');
+        return true;
+    } catch (erro) {
+        console.error('❌ Erro ao enviar notificação:', erro);
+        return false;
+    }
+}
+
+// ================================================================
+// FUNÇÃO 8: SALVAR NO FIREBASE (SÓ BLOQUEADOS)
+// ================================================================
+
+async function salvarModeracaoFirebase(dados) {
+    // SÓ SALVA SE FOR BLOQUEADO
+    if (!dados.bloqueado) {
+        console.log('⏭️ Mensagem aprovada, não salva no Firebase');
+        return null;
+    }
+    
+    try {
+        const resposta = await fetch(`${FIREBASE_URL}/moderacoes.json`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(dados)
+        });
+        
+        if (!resposta.ok) {
+            throw new Error(`Erro HTTP: ${resposta.status}`);
+        }
+        
+        const resultado = await resposta.json();
+        console.log('✅ Dados salvos no Firebase (bloqueado)');
+        return resultado;
+    } catch (erro) {
+        console.error('❌ Erro ao salvar no Firebase:', erro);
+        return null;
+    }
+}
+
+// ================================================================
+// FUNÇÃO 9: MODERAR MENSAGEM
 // ================================================================
 
 function moderarMensagem(mensagem, userId) {
@@ -321,8 +375,18 @@ function moderarMensagem(mensagem, userId) {
         };
     }
     
+    // Verifica se palavras foram carregadas
+    if (!Array.isArray(palavrasProibidas) || palavrasProibidas.length === 0) {
+        return {
+            bloqueado: false,
+            usuarioId: userId,
+            mensagemOriginal: mensagem,
+            erro: 'Nenhuma palavra proibida carregada do JSON',
+            timestamp: new Date().toISOString()
+        };
+    }
+    
     console.log('🔍 Moderando mensagem:', mensagem);
-    console.log('📝 Palavras carregadas:', palavrasProibidas);
     
     // ESTRATÉGIA 1: Verificar a mensagem inteira
     const palavraDetectada = verificarPalavraProibida(mensagem);
@@ -380,34 +444,40 @@ function moderarMensagem(mensagem, userId) {
 }
 
 // ================================================================
-// FUNÇÃO 8: SALVAR NO FIREBASE
+// FUNÇÃO 10: PROCESSAR MENSAGEM COMPLETA
 // ================================================================
 
-async function salvarModeracaoFirebase(dados) {
-    try {
-        const resposta = await fetch(`${FIREBASE_URL}/moderacoes.json`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(dados)
-        });
-        
-        if (!resposta.ok) {
-            throw new Error(`Erro HTTP: ${resposta.status}`);
-        }
-        
-        const resultado = await resposta.json();
-        console.log('✅ Dados salvos no Firebase');
-        return resultado;
-    } catch (erro) {
-        console.error('❌ Erro ao salvar no Firebase:', erro);
-        return null;
+async function processarMensagem(mensagem, userId) {
+    // Carrega palavras se necessário
+    if (!configCarregada) {
+        await carregarPalavras();
     }
+    
+    // Modera a mensagem
+    const resultado = moderarMensagem(mensagem, userId);
+    
+    // Se for bloqueado, salva no Firebase e notifica admin
+    if (resultado.bloqueado) {
+        console.log('🚫 Mensagem BLOQUEADA! Notificando admin...');
+        
+        // Salva no Firebase (só bloqueados)
+        await salvarModeracaoFirebase(resultado);
+        
+        // Envia notificação para o admin
+        await enviarNotificacaoAdmin(
+            resultado.mensagemOriginal,
+            resultado.usuarioId,
+            resultado.palavraDetectada
+        );
+    } else {
+        console.log('✅ Mensagem APROVADA (não salva, não notifica)');
+    }
+    
+    return resultado;
 }
 
 // ================================================================
-// FUNÇÃO 9: BUSCAR HISTÓRICO
+// FUNÇÃO 11: BUSCAR HISTÓRICO (SÓ BLOQUEADOS)
 // ================================================================
 
 async function buscarHistoricoFirebase() {
@@ -425,21 +495,7 @@ async function buscarHistoricoFirebase() {
 }
 
 // ================================================================
-// FUNÇÃO 10: PROCESSAR MENSAGEM
-// ================================================================
-
-async function processarMensagem(mensagem, userId) {
-    if (!configCarregada) {
-        await carregarPalavras();
-    }
-    
-    const resultado = moderarMensagem(mensagem, userId);
-    await salvarModeracaoFirebase(resultado);
-    return resultado;
-}
-
-// ================================================================
-// FUNÇÃO 11: LISTAR PALAVRAS
+// FUNÇÃO 12: LISTAR PALAVRAS
 // ================================================================
 
 function listarPalavrasProibidas() {
@@ -450,7 +506,7 @@ function listarPalavrasProibidas() {
 }
 
 // ================================================================
-// FUNÇÃO 12: VERIFICAR SISTEMA
+// FUNÇÃO 13: VERIFICAR SISTEMA
 // ================================================================
 
 function isConfigCarregada() {
@@ -471,7 +527,9 @@ window.moderacao = {
     isConfigCarregada,
     getPalavrasProibidas: () => {
         return Array.isArray(palavrasProibidas) ? [...palavrasProibidas] : [];
-    }
+    },
+    enviarNotificacaoAdmin,
+    ADMIN_ID: ADMIN_ID
 };
 
 // ================================================================
@@ -479,17 +537,22 @@ window.moderacao = {
 // ================================================================
 
 console.log('🛡️ Sistema de Moderação carregado!');
+console.log(`👤 Admin ID: ${ADMIN_ID}`);
+console.log('📝 As palavras são carregadas do palavras.json');
 
 // Carrega as palavras imediatamente
 carregarPalavras().then(() => {
-    console.log('✅ Sistema pronto!');
-    console.log('📝 Palavras carregadas:', palavrasProibidas);
+    if (configCarregada && palavrasProibidas.length > 0) {
+        console.log('✅ Sistema pronto! Palavras carregadas:', palavrasProibidas.length);
+    } else {
+        console.error('❌ Falha ao carregar palavras! Verifique o arquivo palavras.json');
+    }
 });
 
 // Tenta carregar novamente se falhar
 setTimeout(() => {
     if (!configCarregada || palavrasProibidas.length === 0) {
-        console.log('⏳ Tentando carregar novamente...');
+        console.log('⏳ Tentando carregar palavras novamente...');
         carregarPalavras();
     }
 }, 2000);
