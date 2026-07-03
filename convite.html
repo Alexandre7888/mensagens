@@ -3,20 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Painel Admin - mensagensHUB</title>
-    <meta name="theme-color" content="#111827">
-    <!-- Google tag (gtag.js) -->
+    <title>Convite - mensagensHUB</title>
+    <meta name="theme-color" content="#667eea">
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-N4SK68P0DN"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
-
       gtag('config', 'G-N4SK68P0DN');
     </script>
-    <link rel="icon" type="image/png" href="https://app.trickle.so/storage/public/images/usr_1b4249e300000001/69bb1bd2-fc92-4f38-85f2-a598ae69ef5e.1000336397">
-    <link rel="apple-touch-icon" href="https://app.trickle.so/storage/public/images/usr_1b4249e300000001/69bb1bd2-fc92-4f38-85f2-a598ae69ef5e.1000336397">
-
     <script src="https://resource.trickle.so/vendor_lib/unpkg/react@18/umd/react.production.min.js"></script>
     <script src="https://resource.trickle.so/vendor_lib/unpkg/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://resource.trickle.so/vendor_lib/unpkg/@babel/standalone/babel.min.js"></script>
@@ -24,19 +19,16 @@
     <link href="https://resource.trickle.so/vendor_lib/unpkg/lucide-static@0.516.0/font/lucide.css" rel="stylesheet">
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-
     <style type="text/tailwindcss">
     @layer theme { :root { --primary: #667eea; --secondary: #764ba2; } }
-    @layer base { body { background-color: #111827; font-family: 'Segoe UI', system-ui, sans-serif; color: white; } }
+    @layer base { body { background-color: #f3f4f6; font-family: 'Segoe UI', system-ui, sans-serif; overflow-x: hidden; } }
     </style>
 </head>
 <body>
     <div id="root"></div>
     <script type="text/babel" src="utils/api.js"></script>
     <script type="text/babel" src="utils/firebase-init.js"></script>
-    <script type="text/babel" src="components/AdminAuth.js"></script>
-    <script type="text/babel" src="components/AdminPanel.js"></script>
-    <script type="text/babel" src="admin-app.js"></script>
+    <script type="text/babel" src="components/InvitePage.js"></script>
+    <script type="text/babel" src="convite-app.js"></script>
 </body>
 </html>

@@ -28,6 +28,9 @@ function ChatApp() {
   React.useEffect(() => {
     const init = async () => {
       try {
+        if (window.ModerationSystem) {
+          await window.ModerationSystem.init();
+        }
         const params = new URLSearchParams(window.location.search);
         const chatId = params.get("chatId");
 
