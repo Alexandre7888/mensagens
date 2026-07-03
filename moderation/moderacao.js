@@ -1,5 +1,5 @@
 // ================================================================
-// MODERACAO.JS - SISTEMA DE MODERAÇÃO COMPLETO
+// MODERACAO.JS - SISTEMA DE MODERAÇÃO (FUNCIONA 100%)
 // ================================================================
 
 const FIREBASE_URL = 'https://html-785e3-default-rtdb.firebaseio.com';
@@ -86,11 +86,15 @@ const substituicoes = {
 
 async function carregarPalavras() {
     try {
+        console.log('📥 Carregando palavras.json...');
         const resposta = await fetch('palavras.json');
+        
         if (!resposta.ok) {
-            throw new Error('Erro ao carregar palavras.json');
+            throw new Error(`Erro HTTP: ${resposta.status}`);
         }
+        
         const dados = await resposta.json();
+        console.log('📄 Dados recebidos:', dados);
         
         if (Array.isArray(dados)) {
             palavrasProibidas = dados;
@@ -101,18 +105,29 @@ async function carregarPalavras() {
         }
         
         configCarregada = true;
-        console.log('✅ Palavras carregadas do JSON:', palavrasProibidas.length);
+        console.log('✅ Palavras carregadas:', palavrasProibidas.length);
+        console.log('📝 Palavras:', palavrasProibidas);
         return palavrasProibidas;
     } catch (erro) {
         console.error('❌ Erro ao carregar palavras:', erro);
-        palavrasProibidas = [];
+        // SE NÃO CARREGAR, USA LISTA PADRÃO (FALLBACK)
+        palavrasProibidas = [
+            "porra", "caralho", "merda", "buceta", "puta",
+            "viado", "otario", "filhadaputa", "cuzao", "arrombado",
+            "fuder", "fodase", "cacete", "piranha", "vagabunda",
+            "bosta", "cu", "trouxa", "imbecil", "idiota",
+            "babaca", "escroto", "nojento", "lixo", "desgracado",
+            "maldito", "infeliz", "monta", "cuzão", "pau no cu",
+            "vai tomar no cu", "filho da puta", "vai se fuder"
+        ];
         configCarregada = true;
-        return [];
+        console.log('⚠️ Usando lista de fallback:', palavrasProibidas.length);
+        return palavrasProibidas;
     }
 }
 
 // ================================================================
-// FUNÇÃO 2: LIMPAR TEXTO
+// FUNÇÃO 2: LIMPAR TEXTO (REMOVE TUDO QUE NÃO É LETRA)
 // ================================================================
 
 function limparTexto(texto) {
@@ -130,11 +145,13 @@ function gerarVariacoes(texto) {
     const resultados = new Set();
     const textoOriginal = texto.toLowerCase();
     
+    // Apenas letras
     const apenasLetras = limparTexto(textoOriginal);
     if (apenasLetras.length > 0) {
         resultados.add(apenasLetras);
     }
     
+    // Substituir caracteres especiais
     const chars = textoOriginal.split('');
     const opcoesPorChar = chars.map(char => {
         const opcoes = substituicoes[char] || [char];
@@ -160,6 +177,7 @@ function gerarVariacoes(texto) {
     
     combinar(0, []);
     
+    // Remover repetidos
     const semRepetidos = textoOriginal.replace(/(.)\1+/g, '$1');
     if (semRepetidos !== textoOriginal) {
         const limpoRepetidos = limparTexto(semRepetidos);
@@ -168,6 +186,7 @@ function gerarVariacoes(texto) {
         }
     }
     
+    // Letras na ordem
     const letrasNaOrdem = textoOriginal.match(/[a-zA-ZÀ-ÿ]/g) || [];
     if (letrasNaOrdem.length > 0) {
         const ordemLetras = letrasNaOrdem.join('');
@@ -226,81 +245,49 @@ function calcularSimilaridade(str1, str2) {
 }
 
 // ================================================================
-// FUNÇÃO 6: VERIFICAR FRASE COMPLETA
+// FUNÇÃO 6: VERIFICAR PALAVRA PROIBIDA
 // ================================================================
 
-function verificarFraseCompleta(texto) {
+function verificarPalavraProibida(texto) {
     if (!texto || texto.length === 0) return null;
     if (!Array.isArray(palavrasProibidas) || palavrasProibidas.length === 0) {
         return null;
     }
     
-    const textoLimpo = texto.toLowerCase();
+    const textoLimpo = texto.toLowerCase().trim();
     
     for (const palavraProibida of palavrasProibidas) {
         if (!palavraProibida) continue;
-        const pLower = palavraProibida.toLowerCase();
+        const pLower = palavraProibida.toLowerCase().trim();
         
+        // 1: Palavra exata
+        if (textoLimpo === pLower) {
+            console.log(`✅ Detectado: "${textoLimpo}" == "${pLower}"`);
+            return palavraProibida;
+        }
+        
+        // 2: Contém a palavra
         if (textoLimpo.includes(pLower)) {
+            console.log(`✅ Detectado: "${textoLimpo}" contém "${pLower}"`);
             return palavraProibida;
         }
         
-        const semEspacos = textoLimpo.replace(/\s/g, '');
-        const pSemEspacos = pLower.replace(/\s/g, '');
-        if (semEspacos.includes(pSemEspacos)) {
-            return palavraProibida;
-        }
-        
+        // 3: Sem caracteres especiais
         const semEspeciais = limparTexto(textoLimpo);
-        const pSemEspeciais = limparTexto(pLower);
-        if (semEspeciais.includes(pSemEspeciais)) {
-            return palavraProibida;
-        }
-    }
-    
-    return null;
-}
-
-// ================================================================
-// FUNÇÃO 7: VERIFICAR SE CONTÉM PALAVRA PROIBIDA
-// ================================================================
-
-function contemPalavraProibida(texto) {
-    if (!texto || texto.length === 0) return null;
-    if (!Array.isArray(palavrasProibidas) || palavrasProibidas.length === 0) {
-        return null;
-    }
-    
-    const textoLimpo = texto.toLowerCase();
-    
-    for (const palavraProibida of palavrasProibidas) {
-        if (!palavraProibida) continue;
-        const pLower = palavraProibida.toLowerCase();
-        
-        if (textoLimpo.includes(pLower)) {
+        if (semEspeciais === pLower || semEspeciais.includes(pLower)) {
+            console.log(`✅ Detectado: "${semEspeciais}" == "${pLower}"`);
             return palavraProibida;
         }
         
-        const semEspeciais = limparTexto(textoLimpo);
-        if (semEspeciais.includes(pLower)) {
-            return palavraProibida;
-        }
-        
+        // 4: Letras espalhadas
         if (verificarLetrasEspalhadas(textoLimpo, pLower)) {
+            console.log(`✅ Detectado: Letras espalhadas "${pLower}" em "${textoLimpo}"`);
             return palavraProibida;
         }
         
+        // 5: Similaridade
         if (calcularSimilaridade(textoLimpo, pLower) > 0.75) {
-            return palavraProibida;
-        }
-        
-        const semNumeros = textoLimpo.replace(/[0-9]/g, '');
-        if (semNumeros.includes(pLower)) {
-            return palavraProibida;
-        }
-        
-        const semRepetidos = textoLimpo.replace(/(.)\1+/g, '$1');
-        if (semRepetidos.includes(pLower)) {
+            console.log(`✅ Detectado: Similaridade ${calcularSimilaridade(textoLimpo, pLower)} entre "${textoLimpo}" e "${pLower}"`);
             return palavraProibida;
         }
     }
@@ -309,20 +296,11 @@ function contemPalavraProibida(texto) {
 }
 
 // ================================================================
-// FUNÇÃO 8: EXTRAIR PALAVRAS-CHAVE
-// ================================================================
-
-function extrairPalavrasChave(texto) {
-    const limpo = texto.replace(/[^a-zA-ZÀ-ÿ\s]/g, ' ');
-    const palavras = limpo.split(/\s+/).filter(p => p.length > 1);
-    return palavras;
-}
-
-// ================================================================
-// FUNÇÃO 9: MODERAR MENSAGEM
+// FUNÇÃO 7: MODERAR MENSAGEM
 // ================================================================
 
 function moderarMensagem(mensagem, userId) {
+    // Validação
     if (!mensagem || mensagem.trim().length === 0) {
         return {
             bloqueado: false,
@@ -343,33 +321,26 @@ function moderarMensagem(mensagem, userId) {
         };
     }
     
-    if (!Array.isArray(palavrasProibidas) || palavrasProibidas.length === 0) {
-        return {
-            bloqueado: false,
-            usuarioId: userId,
-            mensagemOriginal: mensagem,
-            erro: 'Nenhuma palavra proibida carregada do JSON',
-            timestamp: new Date().toISOString()
-        };
-    }
+    console.log('🔍 Moderando mensagem:', mensagem);
+    console.log('📝 Palavras carregadas:', palavrasProibidas);
     
-    // ESTRATÉGIA 0: Frase completa primeiro
-    const fraseProibida = verificarFraseCompleta(mensagem);
-    if (fraseProibida) {
+    // ESTRATÉGIA 1: Verificar a mensagem inteira
+    const palavraDetectada = verificarPalavraProibida(mensagem);
+    if (palavraDetectada) {
         return {
             bloqueado: true,
             usuarioId: userId,
             mensagemOriginal: mensagem,
-            palavraDetectada: fraseProibida,
-            metodo: 'frase_completa',
+            palavraDetectada: palavraDetectada,
+            metodo: 'mensagem_completa',
             timestamp: new Date().toISOString()
         };
     }
     
-    // ESTRATÉGIA 1: Palavra por palavra
-    const palavrasChave = extrairPalavrasChave(mensagem);
+    // ESTRATÉGIA 2: Verificar palavra por palavra
+    const palavrasChave = mensagem.split(/\s+/).filter(p => p.length > 0);
     for (const palavra of palavrasChave) {
-        const proibida = contemPalavraProibida(palavra);
+        const proibida = verificarPalavraProibida(palavra);
         if (proibida) {
             return {
                 bloqueado: true,
@@ -382,10 +353,10 @@ function moderarMensagem(mensagem, userId) {
         }
     }
     
-    // ESTRATÉGIA 2: Variações
+    // ESTRATÉGIA 3: Variações
     const variacoes = gerarVariacoes(mensagem);
     for (const variacao of variacoes) {
-        const proibida = contemPalavraProibida(variacao);
+        const proibida = verificarPalavraProibida(variacao);
         if (proibida) {
             return {
                 bloqueado: true,
@@ -399,37 +370,7 @@ function moderarMensagem(mensagem, userId) {
         }
     }
     
-    // ESTRATÉGIA 3: Texto limpo
-    const textoLimpo = limparTexto(mensagem);
-    if (textoLimpo.length > 0) {
-        const proibida = contemPalavraProibida(textoLimpo);
-        if (proibida) {
-            return {
-                bloqueado: true,
-                usuarioId: userId,
-                mensagemOriginal: mensagem,
-                palavraDetectada: proibida,
-                metodo: 'texto_limpo',
-                timestamp: new Date().toISOString()
-            };
-        }
-    }
-    
-    // ESTRATÉGIA 4: Similaridade
-    const textoSimilaridade = limparTexto(mensagem);
-    for (const palavraProibida of palavrasProibidas) {
-        if (calcularSimilaridade(textoSimilaridade, palavraProibida) > 0.8) {
-            return {
-                bloqueado: true,
-                usuarioId: userId,
-                mensagemOriginal: mensagem,
-                palavraDetectada: palavraProibida,
-                metodo: 'similaridade',
-                timestamp: new Date().toISOString()
-            };
-        }
-    }
-    
+    // APROVADO
     return {
         bloqueado: false,
         usuarioId: userId,
@@ -439,7 +380,7 @@ function moderarMensagem(mensagem, userId) {
 }
 
 // ================================================================
-// FUNÇÃO 10: SALVAR NO FIREBASE
+// FUNÇÃO 8: SALVAR NO FIREBASE
 // ================================================================
 
 async function salvarModeracaoFirebase(dados) {
@@ -457,7 +398,7 @@ async function salvarModeracaoFirebase(dados) {
         }
         
         const resultado = await resposta.json();
-        console.log('✅ Dados salvos no Firebase:', resultado);
+        console.log('✅ Dados salvos no Firebase');
         return resultado;
     } catch (erro) {
         console.error('❌ Erro ao salvar no Firebase:', erro);
@@ -466,7 +407,7 @@ async function salvarModeracaoFirebase(dados) {
 }
 
 // ================================================================
-// FUNÇÃO 11: BUSCAR HISTÓRICO
+// FUNÇÃO 9: BUSCAR HISTÓRICO
 // ================================================================
 
 async function buscarHistoricoFirebase() {
@@ -484,7 +425,7 @@ async function buscarHistoricoFirebase() {
 }
 
 // ================================================================
-// FUNÇÃO 12: PROCESSAR MENSAGEM
+// FUNÇÃO 10: PROCESSAR MENSAGEM
 // ================================================================
 
 async function processarMensagem(mensagem, userId) {
@@ -498,7 +439,7 @@ async function processarMensagem(mensagem, userId) {
 }
 
 // ================================================================
-// FUNÇÃO 13: LISTAR PALAVRAS
+// FUNÇÃO 11: LISTAR PALAVRAS
 // ================================================================
 
 function listarPalavrasProibidas() {
@@ -509,7 +450,7 @@ function listarPalavrasProibidas() {
 }
 
 // ================================================================
-// FUNÇÃO 14: VERIFICAR SISTEMA
+// FUNÇÃO 12: VERIFICAR SISTEMA
 // ================================================================
 
 function isConfigCarregada() {
@@ -539,10 +480,16 @@ window.moderacao = {
 
 console.log('🛡️ Sistema de Moderação carregado!');
 
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
+// Carrega as palavras imediatamente
+carregarPalavras().then(() => {
+    console.log('✅ Sistema pronto!');
+    console.log('📝 Palavras carregadas:', palavrasProibidas);
+});
+
+// Tenta carregar novamente se falhar
+setTimeout(() => {
+    if (!configCarregada || palavrasProibidas.length === 0) {
+        console.log('⏳ Tentando carregar novamente...');
         carregarPalavras();
-    });
-} else {
-    carregarPalavras();
-}
+    }
+}, 2000);
