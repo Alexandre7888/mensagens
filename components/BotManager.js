@@ -417,7 +417,7 @@ function BotManager({ user }) {
                                     <button onClick={() => copyToClipboard(`const https = require('https');
 const vm = require('vm');
 
-const SDK_URL = 'https://alexandre7888.github.io/mensagens/bot/sdk.js';
+const SDK_URL = 'https://app.mensagens.site.je/bot/sdk.js';
 
 https.get(SDK_URL, (res) => {
     let data = '';
@@ -443,7 +443,7 @@ https.get(SDK_URL, (res) => {
 {`const https = require('https');
 const vm = require('vm');
 
-const SDK_URL = 'https://alexandre7888.github.io/mensagens/bot/sdk.js';
+const SDK_URL = 'https://app.mensagens.site.je/bot/sdk.js';
 
 https.get(SDK_URL, (res) => {
     let data = '';

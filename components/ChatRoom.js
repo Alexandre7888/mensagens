@@ -201,9 +201,9 @@ function ChatRoom({ user, chat }) {
             });
         }
 
-        // Apagar as próprias mensagens ou recebidas do servidor para economizar espaço
+        // Apagar as mensagens do servidor apenas se já foram lidas para economizar espaço
         messages.forEach(msg => {
-            if (msg.senderId === user.id || msg.read) {
+            if (msg.read) {
                 setTimeout(() => {
                     db.ref(`${refPath}/${msg.key}`).remove().catch(()=>{});
                 }, 4000);
@@ -539,6 +539,20 @@ function ChatRoom({ user, chat }) {
     const sendMessage = async () => {
         if (!messageInput.trim() || !db) return;
         
+        // Moderação Automática
+        if (window.ModerationSystem) {
+            try {
+                const modResult = await window.ModerationSystem.checkMessage(messageInput.trim(), user.id);
+                if (modResult && modResult.bloqueado) {
+                    console.log('Mensagem retida para moderação:', modResult.palavraDetectada);
+                    showToastMessage("Mensagem bloqueada pela moderação.", "error");
+                    return;
+                }
+            } catch (e) {
+                console.error('Erro na moderação:', e);
+            }
+        }
+
         if (!verificarPermissao('enviar_mensagem')) {
             showToastMessage("Você não tem permissão para enviar mensagens.", "error");
             return;
@@ -557,7 +571,9 @@ function ChatRoom({ user, chat }) {
         }
         
         const rawText = messageInput.trim();
-        const encryptedText = window.CryptoUtils ? window.CryptoUtils.encrypt(rawText, encryptionKey) : rawText;
+        // Verifica se é um comando para bot (! ou /) para não criptografar
+        const isBotCommand = rawText.startsWith('!') || rawText.startsWith('/');
+        const encryptedText = (window.CryptoUtils && !isBotCommand) ? window.CryptoUtils.encrypt(rawText, encryptionKey) : rawText;
 
         if (editingMessage) {
             await db.ref(`${refPath}/${editingMessage.key}`).update({
@@ -584,7 +600,7 @@ function ChatRoom({ user, chat }) {
             ephemeral: ephemeralMode,
             replyTo: replyingTo ? {
                 id: replyingTo.key,
-                text: replyingTo.type === 'text' ? (window.CryptoUtils ? window.CryptoUtils.encrypt(replyingTo.text, encryptionKey) : replyingTo.text) : (replyingTo.fileName || 'Mídia'),
+                text: replyingTo.type === 'text' ? replyingTo.text : (replyingTo.fileName || 'Mídia'),
                 senderName: replyingTo.senderName
             } : null
         };
@@ -1027,7 +1043,7 @@ function ChatRoom({ user, chat }) {
                     <div className={`flex items-center justify-between p-2 px-4 rounded-t-xl border-l-4 -mt-3 mb-2 animate-fade-in-up flex-shrink-0 ${ephemeralMode ? 'bg-gray-800 border-purple-500' : 'bg-indigo-50 border-indigo-500'}`}>
                         <div className="overflow-hidden min-w-0">
                             <span className="text-xs font-bold text-indigo-600 block">Respondendo a {window.CensorUtils ? window.CensorUtils.censor(replyingTo.senderName) : replyingTo.senderName}</span>
-                            <span className="text-sm text-gray-600 truncate block">{replyingTo.type === 'text' ? (window.CensorUtils ? window.CensorUtils.censor(replyingTo.text) : replyingTo.text) : replyingTo.fileName || 'Mídia'}</span>
+                            <span className="text-sm text-gray-600 truncate block">{replyingTo.type === 'text' ? (window.CensorUtils ? window.CensorUtils.censor(window.CryptoUtils ? window.CryptoUtils.decrypt(replyingTo.text, encryptionKey) : replyingTo.text) : (window.CryptoUtils ? window.CryptoUtils.decrypt(replyingTo.text, encryptionKey) : replyingTo.text)) : replyingTo.fileName || 'Mídia'}</span>
                         </div>
                         <button onClick={() => setReplyingTo(null)} className="text-gray-400 hover:text-gray-600">
                             <div className="icon-x text-lg"></div>

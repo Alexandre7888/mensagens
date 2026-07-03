@@ -4,6 +4,7 @@ function AdminPanel() {
   const [bannedUsers, setBannedUsers] = React.useState([]);
   const [groups, setGroups] = React.useState([]);
   const [appeals, setAppeals] = React.useState([]);
+  const [moderations, setModerations] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [selectedUser, setSelectedUser] = React.useState(null);
   const [banModalUser, setBanModalUser] = React.useState(null);
@@ -22,6 +23,7 @@ function AdminPanel() {
       const usersSnap = await window.firebaseDB.ref('users').once('value');
       const bannedSnap = await window.firebaseDB.ref('banned_users').once('value');
       const groupsSnap = await window.firebaseDB.ref('groups').once('value');
+      const modSnap = await window.firebaseDB.ref('moderacoes').once('value');
       
       const usersList = [];
       usersSnap.forEach(child => {
@@ -37,6 +39,14 @@ function AdminPanel() {
       groupsSnap.forEach(child => {
         groupsList.push({ id: child.key, ...child.val() });
       });
+
+      const modList = [];
+      if (modSnap.exists()) {
+        modSnap.forEach(child => {
+          modList.push({ id: child.key, ...child.val() });
+        });
+        modList.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      }
 
       const appealsList = [];
       if (window.firebaseFirestore) {
@@ -59,6 +69,7 @@ function AdminPanel() {
       setBannedUsers(bannedList);
       setGroups(groupsList);
       setAppeals(appealsList);
+      setModerations(modList);
     }
     setLoading(false);
   };
@@ -91,11 +102,12 @@ function AdminPanel() {
   };
 
   const handleBanUser = async (user, type) => {
-    // type pode ser: 'permanent', '1h', '24h', '7d'
+    // type pode ser: 'permanent', '15m', '1h', '24h', '7d'
     let banUntil = null;
     let label = 'Permanente';
     const now = Date.now();
     
+    if (type === '15m') { banUntil = now + (15 * 60 * 1000); label = '15 Minutos'; }
     if (type === '1h') { banUntil = now + (60 * 60 * 1000); label = '1 Hora'; }
     if (type === '24h') { banUntil = now + (24 * 60 * 60 * 1000); label = '24 Horas'; }
     if (type === '7d') { banUntil = now + (7 * 24 * 60 * 60 * 1000); label = '7 Dias'; }
@@ -195,6 +207,17 @@ function AdminPanel() {
     setNewTemplateText('');
   };
 
+  const handleDismissModeration = async (modId) => {
+    if (!window.confirm('Marcar como moderação leve e ignorar esta infração?')) return;
+    try {
+      await window.firebaseDB.ref(`moderacoes/${modId}`).remove();
+      loadData();
+    } catch (err) {
+      console.error('Erro ao ignorar moderação:', err);
+      alert('Erro ao ignorar moderação.');
+    }
+  };
+
   const openBanModal = (user) => {
     setBanModalUser(user);
     setIncludeReason(false);
@@ -254,6 +277,12 @@ function AdminPanel() {
             <div className="icon-message-square"></div> Monitoramento
           </button>
           <button 
+            onClick={() => setActiveTab('moderations')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'moderations' ? 'bg-yellow-600 text-white' : 'text-gray-400 hover:bg-gray-700 hover:text-yellow-500'}`}
+          >
+            <div className="icon-hammer"></div> Moderações
+          </button>
+          <button 
             onClick={() => setActiveTab('danger')}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'danger' ? 'bg-red-900 text-white' : 'text-gray-400 hover:bg-gray-700 hover:text-red-500'}`}
           >
@@ -265,7 +294,7 @@ function AdminPanel() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col bg-gray-900">
         <div className="p-6 border-b border-gray-800 flex justify-between items-center bg-gray-800/50">
-          <h2 className="text-xl font-bold capitalize text-white">{activeTab === 'banned' ? 'Usuários Banidos' : activeTab === 'danger' ? 'Zona Perigosa' : activeTab}</h2>
+          <h2 className="text-xl font-bold capitalize text-white">{activeTab === 'banned' ? 'Usuários Banidos' : activeTab === 'danger' ? 'Zona Perigosa' : activeTab === 'moderations' ? 'Moderações' : activeTab}</h2>
           <button onClick={loadData} className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-300">
             <div className="icon-refresh-cw"></div>
           </button>
@@ -386,6 +415,60 @@ function AdminPanel() {
                         <div className="mt-auto pt-4 border-t border-gray-700 flex gap-2">
                           <button onClick={() => handleUnbanUser(bUser)} className="flex-1 py-2 bg-green-900/30 text-green-400 hover:bg-green-900/50 rounded-lg text-sm font-medium transition-colors">
                             Desbanir Manualmente
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {activeTab === 'moderations' && (
+                <div className="grid grid-cols-1 gap-4">
+                  {moderations.length === 0 && <p className="text-gray-400">Nenhuma infração registrada.</p>}
+                  {moderations.map(mod => {
+                    const user = users.find(u => u.id === mod.usuarioId) || {};
+                    return (
+                      <div key={mod.id} className="bg-gray-800 border border-yellow-900/50 rounded-xl p-4 flex flex-col md:flex-row gap-4 items-start md:items-center">
+                        <div className="flex items-center gap-4 flex-shrink-0">
+                          <img src={user.profilePicture || 'https://resource.trickle.so/coding_trickle/trickle_avatar.png'} alt="Avatar" className="w-12 h-12 rounded-full object-cover bg-gray-700" />
+                          <div>
+                            <h3 className="font-bold text-white">{user.username || user.nome || 'Usuário Desconhecido'}</h3>
+                            <p className="text-xs text-gray-400">ID: {mod.usuarioId}</p>
+                          </div>
+                        </div>
+                        <div className="flex-1 bg-gray-900 p-3 rounded-lg border border-gray-700 w-full">
+                          <div className="flex justify-between items-start mb-2">
+                            <span className="text-xs font-bold uppercase bg-red-900/50 text-red-400 px-2 py-1 rounded">Bloqueado: {mod.bloqueado ? 'Sim' : 'Não'}</span>
+                            <span className="text-xs text-gray-500">{new Date(mod.timestamp).toLocaleString()}</span>
+                          </div>
+                          <p className="text-sm text-gray-300 mb-1"><strong>Mensagem:</strong> {mod.mensagemOriginal}</p>
+                          <p className="text-xs text-yellow-500"><strong>Palavra detectada:</strong> {mod.palavraDetectada}</p>
+                        </div>
+                        <div className="flex-shrink-0 w-full md:w-auto flex flex-col md:flex-row gap-2 justify-end">
+                          <button 
+                            onClick={() => handleDismissModeration(mod.id)}
+                            className="px-3 py-2 bg-green-900/30 text-green-400 hover:bg-green-900/50 rounded-lg text-xs font-medium transition-colors whitespace-nowrap"
+                          >
+                            Moderação Leve (Ignorar)
+                          </button>
+                          <button 
+                            onClick={() => {
+                              if (user.id) handleBanUser(user, '15m');
+                              else alert('Usuário não encontrado.');
+                            }}
+                            className="px-3 py-2 bg-yellow-900/30 text-yellow-400 hover:bg-yellow-900/50 rounded-lg text-xs font-medium transition-colors whitespace-nowrap"
+                          >
+                            Suspender 15m
+                          </button>
+                          <button 
+                            onClick={() => {
+                              if (user.id) openBanModal(user);
+                              else alert('Usuário não encontrado na base de dados para banir.');
+                            }}
+                            className="px-4 py-2 bg-red-900/30 text-red-400 hover:bg-red-900/50 rounded-lg text-sm font-bold transition-colors whitespace-nowrap"
+                          >
+                            Banir
                           </button>
                         </div>
                       </div>
@@ -538,6 +621,7 @@ function AdminPanel() {
               </div>
 
               <div className="space-y-3">
+                <button onClick={() => handleBanUser(banModalUser, '15m')} className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-medium">15 Minutos</button>
                 <button onClick={() => handleBanUser(banModalUser, '1h')} className="w-full py-3 bg-yellow-600 hover:bg-yellow-700 text-white rounded-xl font-medium">1 Hora</button>
                 <button onClick={() => handleBanUser(banModalUser, '24h')} className="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-medium">24 Horas</button>
                 <button onClick={() => handleBanUser(banModalUser, '7d')} className="w-full py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-medium">7 Dias</button>

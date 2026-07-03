@@ -8,7 +8,7 @@ function CreditsInterface() {
 
     // Payment Calculator State
     const [rechargeValue, setRechargeValue] = React.useState('');
-    const PRECO_POR_CREDITO = 0.50;
+    const PRECO_POR_CREDITO = 0.0025; // R$ 0.50 = 200 creditos
 
     const generateAdLink = async (uid) => {
         try {
@@ -306,7 +306,7 @@ function CreditsInterface() {
                                     <span>📊 Novo saldo:</span> 
                                     <span className="font-bold text-indigo-600">{credits + calculatedCredits} créditos</span>
                                 </p>
-                                <p className="text-green-600 font-bold text-sm text-center pt-2">⚡ Cada R$ 0,50 = 1 crédito</p>
+                                <p className="text-green-600 font-bold text-sm text-center pt-2">⚡ Cada R$ 0,50 = 200 créditos</p>
                             </div>
                         )}
 

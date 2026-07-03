@@ -35,7 +35,11 @@ function InfoInterface({ user, chat }) {
     };
     
     const [toastMessage, setToastMessage] = React.useState(null);
-    const [activeTab, setActiveTab] = React.useState('info'); // info, members, roles, audit
+    const [activeTab, setActiveTab] = React.useState('info'); // info, members, roles, audit, invites
+    const [invites, setInvites] = React.useState({});
+    const [showInviteModal, setShowInviteModal] = React.useState(false);
+    const [inviteSettings, setInviteSettings] = React.useState({ type: 'temp', customName: '', duration: '24h' });
+    const [userCredits, setUserCredits] = React.useState(0);
     const [auditLog, setAuditLog] = React.useState([]);
     const [showMenu, setShowMenu] = React.useState(false);
 
@@ -95,14 +99,84 @@ function InfoInterface({ user, chat }) {
                 if (logs) setAuditLog(Object.keys(logs).map(k => ({ id: k, ...logs[k] })).reverse());
             });
         }
+
+        if (db) {
+            db.ref('invites').orderByChild('targetId').equalTo(chat.id).on('value', snap => {
+                setInvites(snap.val() || {});
+            });
+            db.ref(`users/${user.id}/credits`).on('value', snap => {
+                setUserCredits(snap.val() || 0);
+            });
+        }
+
         return () => {
             if (chat.type === 'group' && db) {
                 db.ref(`groups/${chat.id}/members`).off();
                 db.ref(`groups/${chat.id}/cargos`).off();
                 db.ref(`groups/${chat.id}/auditLog`).off();
             }
+            if (db) {
+                db.ref('invites').off();
+                db.ref(`users/${user.id}/credits`).off();
+            }
         }
     }, [chat.id, db, user.id]);
+
+    const generateRandomId = () => Math.random().toString(36).substr(2, 9);
+
+    const handleCreateInvite = async () => {
+        if (!db) return;
+        
+        const isCustom = inviteSettings.type === 'custom';
+        const inviteId = isCustom ? inviteSettings.customName.toLowerCase().replace(/[^a-z0-9_-]/g, '') : generateRandomId();
+        
+        if (isCustom) {
+            if (inviteId.length < 3) {
+                showToastMessage("O nome personalizado deve ter pelo menos 3 caracteres.", "error");
+                return;
+            }
+            const existing = await db.ref(`invites/${inviteId}`).once('value');
+            if (existing.exists()) {
+                showToastMessage("Esse nome personalizado já está em uso.", "error");
+                return;
+            }
+            
+            const cost = 5000;
+            if (userCredits < cost) {
+                showToastMessage(`Você precisa de ${cost} créditos para um convite personalizado.`, "error");
+                return;
+            }
+            await db.ref(`users/${user.id}/credits`).set(userCredits - cost);
+        }
+
+        let expiresAt = null;
+        if (!isCustom) {
+            const hours = parseInt(inviteSettings.duration);
+            expiresAt = Date.now() + (hours * 60 * 60 * 1000);
+        } else {
+            // Custom expires in 7 days
+            expiresAt = Date.now() + (7 * 24 * 60 * 60 * 1000);
+        }
+
+        await db.ref(`invites/${inviteId}`).set({
+            targetId: chat.id,
+            type: chat.type === 'group' ? 'group' : 'user',
+            createdBy: user.id,
+            createdAt: Date.now(),
+            expiresAt: expiresAt,
+            isCustom: isCustom
+        });
+
+        showToastMessage("Convite criado com sucesso!");
+        setShowInviteModal(false);
+    };
+
+    const handleDeleteInvite = async (inviteId) => {
+        if (window.confirm("Deseja deletar este convite?")) {
+            await db.ref(`invites/${inviteId}`).remove();
+            showToastMessage("Convite deletado!");
+        }
+    };
 
     const showToastMessage = (message, type = "success") => {
         setToastMessage({ message, type });
@@ -311,7 +385,7 @@ function InfoInterface({ user, chat }) {
         }
     };
 
-    if (!cargosData) return null;
+    if (chat.type === 'group' && !cargosData) return null;
 
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col pb-10" data-name="info-interface">
@@ -343,6 +417,9 @@ function InfoInterface({ user, chat }) {
                                 </button>
                                 <button onClick={() => { setActiveTab('roles'); setShowMenu(false); }} className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-3">
                                     <div className="icon-mic-off text-gray-400"></div> Mutados
+                                </button>
+                                <button onClick={() => { setActiveTab('invites'); setShowMenu(false); }} className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-3 text-indigo-600 font-bold">
+                                    <div className="icon-link text-indigo-600"></div> Convites
                                 </button>
                                 <div className="h-px bg-gray-100 my-1"></div>
                                 <button onClick={() => { window.location.href='index.html'; }} className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center gap-3 text-red-600">
@@ -385,22 +462,15 @@ function InfoInterface({ user, chat }) {
                         </h3>
                         {chat.type === 'group' ? (
                             isAdmin ? (
-                                <button onClick={() => {
-                                    const link = `${window.location.origin}${window.location.pathname.replace('info.html','')}` + `index.html?joinGroup=${chat.id}`;
-                                    setInviteLink(link);
-                                    logAction("Gerou novo link de convite");
-                                }} className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-gray-50 text-gray-800 rounded-xl font-bold hover:bg-gray-100 border border-gray-200">
-                                    <div className="icon-link"></div> Link de Convite do Grupo
+                                <button onClick={() => setActiveTab('invites')} className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-indigo-50 text-indigo-800 rounded-xl font-bold hover:bg-indigo-100 border border-indigo-200">
+                                    <div className="icon-link"></div> Gerenciar Convites
                                 </button>
                             ) : (
-                                <div className="p-3 bg-gray-50 text-gray-500 rounded-xl text-center">Apenas admins podem criar links</div>
+                                <div className="p-3 bg-gray-50 text-gray-500 rounded-xl text-center">Apenas admins podem gerenciar convites</div>
                             )
                         ) : (
-                            <button onClick={() => {
-                                const link = `${window.location.origin}${window.location.pathname.replace('info.html','')}` + `index.html?addUser=${chat.id}`;
-                                setInviteLink(link);
-                            }} className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-gray-50 text-gray-800 rounded-xl font-bold hover:bg-gray-100 border border-gray-200">
-                                <div className="icon-share-2"></div> Compartilhar Contato
+                            <button onClick={() => setActiveTab('invites')} className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-indigo-50 text-indigo-800 rounded-xl font-bold hover:bg-indigo-100 border border-indigo-200">
+                                <div className="icon-share-2"></div> Gerenciar Convites Pessoais
                             </button>
                         )}
                         {inviteLink && (
@@ -587,6 +657,60 @@ function InfoInterface({ user, chat }) {
                     </div>
                 )}
 
+                {/* TELA DE CONVITES */}
+                {activeTab === 'invites' && (
+                    <div className="space-y-6">
+                        <div className="bg-indigo-800 text-white p-4 rounded-xl text-center shadow-lg flex justify-between items-center">
+                            <div>
+                                <h2 className="text-xl font-bold mb-1">🔗 CONVITES</h2>
+                                <p className="text-sm text-indigo-200">Gerencie links de acesso</p>
+                            </div>
+                            <button onClick={() => setShowInviteModal(true)} className="bg-white text-indigo-800 px-4 py-2 rounded-lg font-bold hover:bg-indigo-50">
+                                + Novo
+                            </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {Object.keys(invites).length === 0 ? (
+                                <p className="text-gray-500 text-center col-span-full py-6">Nenhum convite ativo no momento.</p>
+                            ) : (
+                                Object.entries(invites).map(([inviteId, data]) => {
+                                    const isExpired = data.expiresAt && Date.now() > data.expiresAt;
+                                    const linkUrl = `${window.location.origin}${window.location.pathname.replace('info.html','')}convite.html?id=${inviteId}`;
+                                    
+                                    return (
+                                        <div key={inviteId} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-200 relative overflow-hidden flex flex-col justify-between">
+                                            {data.isCustom && (
+                                                <div className="absolute top-0 right-0 bg-yellow-400 text-yellow-900 text-[10px] font-bold px-2 py-1 rounded-bl-lg">
+                                                    PREMIUM
+                                                </div>
+                                            )}
+                                            <div>
+                                                <h4 className="font-bold text-gray-800 text-lg mb-1 break-all">{inviteId}</h4>
+                                                <p className="text-xs text-gray-500 mb-3">
+                                                    {isExpired ? (
+                                                        <span className="text-red-500 font-bold">Expirado</span>
+                                                    ) : (
+                                                        data.expiresAt ? `Expira em: ${new Date(data.expiresAt).toLocaleString()}` : 'Permanente'
+                                                    )}
+                                                </p>
+                                            </div>
+                                            <div className="flex gap-2 mt-4">
+                                                <button onClick={() => { navigator.clipboard.writeText(linkUrl); showToastMessage("Link copiado!"); }} className="flex-1 bg-indigo-50 text-indigo-700 py-2 rounded-lg font-bold text-sm hover:bg-indigo-100 transition-colors">
+                                                    Copiar
+                                                </button>
+                                                <button onClick={() => handleDeleteInvite(inviteId)} className="bg-red-50 text-red-600 px-3 py-2 rounded-lg hover:bg-red-100 transition-colors">
+                                                    <div className="icon-trash-2"></div>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )
+                                })
+                            )}
+                        </div>
+                    </div>
+                )}
+
             </main>
 
             {/* MODAL ADD BY USERNAME */}
@@ -685,6 +809,82 @@ function InfoInterface({ user, chat }) {
                         <div className="p-4 border-t bg-gray-50 flex gap-3">
                             <button onClick={() => setShowRoleModal(false)} className="flex-1 py-3 bg-gray-200 text-gray-700 font-bold rounded-xl hover:bg-gray-300">CANCELAR</button>
                             <button onClick={handleSaveCustomRole} disabled={!editingRole.id} className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 disabled:opacity-50">SALVAR CARGO</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL CRIAR CONVITE */}
+            {showInviteModal && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl animate-fade-in-up">
+                        <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+                            <h3 className="font-bold text-gray-800 text-lg">Criar Convite</h3>
+                            <button onClick={() => setShowInviteModal(false)} className="text-gray-500 hover:bg-gray-200 p-1 rounded-full"><div className="icon-x"></div></button>
+                        </div>
+                        <div className="p-6 space-y-5">
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-2">Tipo de Convite:</label>
+                                <div className="flex gap-2">
+                                    <button 
+                                        onClick={() => setInviteSettings({...inviteSettings, type: 'temp'})} 
+                                        className={`flex-1 py-2 rounded-lg font-bold text-sm border-2 ${inviteSettings.type === 'temp' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-gray-200 text-gray-500'}`}
+                                    >
+                                        Temporário (Grátis)
+                                    </button>
+                                    <button 
+                                        onClick={() => setInviteSettings({...inviteSettings, type: 'custom'})} 
+                                        className={`flex-1 py-2 rounded-lg font-bold text-sm border-2 flex items-center justify-center gap-1 ${inviteSettings.type === 'custom' ? 'border-yellow-500 bg-yellow-50 text-yellow-700' : 'border-gray-200 text-gray-500'}`}
+                                    >
+                                        <div className="icon-star text-xs"></div> Personalizado
+                                    </button>
+                                </div>
+                            </div>
+
+                            {inviteSettings.type === 'temp' ? (
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Duração:</label>
+                                    <select 
+                                        value={inviteSettings.duration}
+                                        onChange={(e) => setInviteSettings({...inviteSettings, duration: e.target.value})}
+                                        className="w-full p-3 border border-gray-300 rounded-xl outline-none focus:border-indigo-500"
+                                    >
+                                        <option value="1">1 Hora</option>
+                                        <option value="24">24 Horas</option>
+                                        <option value="168">7 Dias</option>
+                                    </select>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-2">Link Personalizado (Ex: meugrupo):</label>
+                                        <input 
+                                            type="text" 
+                                            placeholder="Nome exclusivo"
+                                            value={inviteSettings.customName}
+                                            onChange={(e) => setInviteSettings({...inviteSettings, customName: e.target.value})}
+                                            className="w-full p-3 border border-gray-300 rounded-xl outline-none focus:border-indigo-500 bg-gray-50"
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">Duração: 7 Dias. Requer renovação.</p>
+                                    </div>
+                                    <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 flex justify-between items-center">
+                                        <span className="text-sm font-bold text-yellow-800">Custo:</span>
+                                        <span className="text-lg font-black text-yellow-600 flex items-center gap-1">
+                                            <div className="icon-coins text-yellow-500"></div> 5000
+                                        </span>
+                                    </div>
+                                    <div className="text-center text-sm text-gray-500">
+                                        Seu saldo: <span className="font-bold text-indigo-600">{userCredits} créditos</span>
+                                    </div>
+                                </div>
+                            )}
+
+                            <button 
+                                onClick={handleCreateInvite}
+                                className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-md"
+                            >
+                                Gerar Link de Convite
+                            </button>
                         </div>
                     </div>
                 </div>
