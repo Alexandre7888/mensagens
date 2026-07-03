@@ -553,8 +553,8 @@ function ChatInterface({ user, onLogout }) {
                                                     <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-800 flex items-center justify-center text-white shadow-sm flex-shrink-0">
                                                         <div className="icon-network text-2xl"></div>
                                                     </div>
-                                                ) : chat.type === 'direct' && allUsersData[chat.id]?.profilePicture ? (
-                                                    <img src={allUsersData[chat.id].profilePicture} className="w-12 h-12 rounded-full object-cover shadow-sm flex-shrink-0 border border-gray-100" />
+                                                ) : chat.type === 'direct' && allUsersData[chat.targetId || chat.id]?.profilePicture ? (
+                                                    <img src={allUsersData[chat.targetId || chat.id].profilePicture} className="w-12 h-12 rounded-full object-cover shadow-sm flex-shrink-0 border border-gray-100" />
                                                 ) : (
                                                     <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white font-bold text-lg shadow-sm flex-shrink-0">
                                                         {(chat.name || 'Chat').charAt(0).toUpperCase()}
@@ -966,8 +966,8 @@ function ChatInterface({ user, onLogout }) {
                                 <div className="w-full h-full bg-gradient-to-br from-blue-600 to-indigo-800 flex items-center justify-center text-white">
                                     <div className="icon-network text-6xl"></div>
                                 </div>
-                            ) : quickActionChat.type === 'direct' && allUsersData[quickActionChat.id]?.profilePicture ? (
-                                <img src={allUsersData[quickActionChat.id].profilePicture} className="w-full h-full object-cover" />
+                            ) : quickActionChat.type === 'direct' && allUsersData[quickActionChat.targetId || quickActionChat.id]?.profilePicture ? (
+                                <img src={allUsersData[quickActionChat.targetId || quickActionChat.id].profilePicture} className="w-full h-full object-cover" />
                             ) : (
                                 <div className="w-full h-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white font-bold text-6xl">
                                     {(quickActionChat.name || 'Chat').charAt(0).toUpperCase()}

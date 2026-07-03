@@ -38,7 +38,7 @@ function ChatRoom({ user, chat }) {
     // Ephemeral (Secret) state
     const [ephemeralMode, setEphemeralMode] = React.useState(false);
 
-    const encryptionKey = chat.type === 'group' ? chat.id : [user.id, chat.id].sort().join('_');
+    const encryptionKey = chat.id;
 
     const renderTextWithLinks = (text) => {
         if (!text) return null;
@@ -85,7 +85,8 @@ function ChatRoom({ user, chat }) {
     const touchStartY = React.useRef(0);
     const typingTimer = React.useRef(null);
 
-    const refPath = chat.type === 'group' ? `groups/${chat.id}/messages` : `chats/${[user.id, chat.id].sort().join('_')}/messages`;
+    // Novo sistema de ID aleatório, sem expor user IDs na rota do banco
+    const refPath = chat.type === 'group' ? `groups/${chat.id}/messages` : `chats/${chat.id}/messages`;
 
     // Load local deleted messages
     React.useEffect(() => {
@@ -179,7 +180,7 @@ function ChatRoom({ user, chat }) {
     };
 
     const getFirestorePath = () => {
-        return chat.type === 'group' ? `groups/${chat.id}/messages` : `chats/${[user.id, chat.id].sort().join('_')}/messages`;
+        return chat.type === 'group' ? `groups/${chat.id}/messages` : `chats/${chat.id}/messages`;
     };
 
     React.useEffect(() => {
@@ -621,9 +622,12 @@ function ChatRoom({ user, chat }) {
                 await db.ref(`users/${uid}/chats/${chat.id}`).update(chatUpdate);
             }
         } else {
+            const target = chat.targetId || chat.id; // Fallback para chats antigos
             await db.ref(`users/${user.id}/chats/${chat.id}`).update(chatUpdate);
-            await db.ref(`users/${chat.id}/chats/${user.id}`).update(chatUpdate);
-            api.sendNotification(chat.id, user.name, messageInput.trim());
+            if (target !== user.id) {
+                await db.ref(`users/${target}/chats/${chat.id}`).update(chatUpdate);
+                api.sendNotification(target, user.name, messageInput.trim());
+            }
         }
         
         setLastMessageSentTime(Date.now());
@@ -667,9 +671,12 @@ function ChatRoom({ user, chat }) {
                 await db.ref(`users/${uid}/chats/${chat.id}`).update(chatUpdate);
             }
         } else {
+            const target = chat.targetId || chat.id;
             await db.ref(`users/${user.id}/chats/${chat.id}`).update(chatUpdate);
-            await db.ref(`users/${chat.id}/chats/${user.id}`).update(chatUpdate);
-            api.sendNotification(chat.id, user.name, 'Enviou um GIF');
+            if (target !== user.id) {
+                await db.ref(`users/${target}/chats/${chat.id}`).update(chatUpdate);
+                api.sendNotification(target, user.name, 'Enviou um GIF');
+            }
         }
         setLastMessageSentTime(Date.now());
     };
@@ -1189,7 +1196,8 @@ function ChatRoom({ user, chat }) {
                             className={`w-full text-left px-4 py-3 text-sm font-bold flex items-center gap-3 transition-colors border-t ${ephemeralMode ? 'border-gray-700 text-gray-200 hover:bg-gray-700' : 'border-gray-100 text-gray-700 hover:bg-gray-50'}`}
                             onClick={(e) => {
                                 e.stopPropagation();
-                                navigator.clipboard.writeText(contextMenu.msg.text);
+                                const decrypted = window.CryptoUtils ? window.CryptoUtils.decrypt(contextMenu.msg.text, encryptionKey) : contextMenu.msg.text;
+                                navigator.clipboard.writeText(decrypted);
                                 showToastMessage("Copiado", "success");
                                 setContextMenu(null);
                             }}

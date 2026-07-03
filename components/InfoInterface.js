@@ -131,6 +131,10 @@ function InfoInterface({ user, chat }) {
         const inviteId = isCustom ? inviteSettings.customName.toLowerCase().replace(/[^a-z0-9_-]/g, '') : generateRandomId();
         
         if (isCustom) {
+            if (chat.type !== 'group') {
+                showToastMessage("Links personalizados estão disponíveis apenas para grupos.", "error");
+                return;
+            }
             if (inviteId.length < 3) {
                 showToastMessage("O nome personalizado deve ter pelo menos 3 caracteres.", "error");
                 return;
@@ -832,12 +836,14 @@ function InfoInterface({ user, chat }) {
                                     >
                                         Temporário (Grátis)
                                     </button>
-                                    <button 
-                                        onClick={() => setInviteSettings({...inviteSettings, type: 'custom'})} 
-                                        className={`flex-1 py-2 rounded-lg font-bold text-sm border-2 flex items-center justify-center gap-1 ${inviteSettings.type === 'custom' ? 'border-yellow-500 bg-yellow-50 text-yellow-700' : 'border-gray-200 text-gray-500'}`}
-                                    >
-                                        <div className="icon-star text-xs"></div> Personalizado
-                                    </button>
+                                    {chat.type === 'group' && (
+                                        <button 
+                                            onClick={() => setInviteSettings({...inviteSettings, type: 'custom'})} 
+                                            className={`flex-1 py-2 rounded-lg font-bold text-sm border-2 flex items-center justify-center gap-1 ${inviteSettings.type === 'custom' ? 'border-yellow-500 bg-yellow-50 text-yellow-700' : 'border-gray-200 text-gray-500'}`}
+                                        >
+                                            <div className="icon-star text-xs"></div> Personalizado
+                                        </button>
+                                    )}
                                 </div>
                             </div>
 

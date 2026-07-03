@@ -97,19 +97,29 @@ function InvitePage() {
                 }
                 window.location.href = `chat.html?chatId=${targetData.id}`;
             } else {
-                // Private Chat
-                const chatId = user.id < targetData.id ? `${user.id}_${targetData.id}` : `${targetData.id}_${user.id}`;
+                // Private Chat with Random ID
+                let existingChatId = null;
+                const myChatsSnap = await db.ref(`users/${user.id}/chats`).once('value');
+                const myChats = myChatsSnap.val() || {};
+                for (const [cId, cData] of Object.entries(myChats)) {
+                    if ((cData.type === 'direct' || cData.type === 'private') && (cData.targetId === targetData.id || cId === targetData.id)) {
+                        existingChatId = cId;
+                        break;
+                    }
+                }
+
+                const chatId = existingChatId || `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                 
-                await db.ref(`users/${user.id}/chats/${chatId}`).set({
+                await db.ref(`users/${user.id}/chats/${chatId}`).update({
                     name: targetData.name || targetData.username || 'Usuário',
-                    type: 'private',
+                    type: 'direct',
                     targetId: targetData.id,
                     timestamp: Date.now()
                 });
 
-                await db.ref(`users/${targetData.id}/chats/${chatId}`).set({
+                await db.ref(`users/${targetData.id}/chats/${chatId}`).update({
                     name: user.name || user.username || 'Usuário',
-                    type: 'private',
+                    type: 'direct',
                     targetId: user.id,
                     timestamp: Date.now()
                 });
