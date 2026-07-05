@@ -161,5 +161,33 @@ function CustomVideoPlayer({ src }) {
     );
 }
 
+function UniversalVideoPlayer({ src }) {
+    const getYouTubeId = (url) => {
+        const regExp = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+        const match = url.match(regExp);
+        return match ? match[1] : null;
+    };
+
+    const ytId = getYouTubeId(src);
+
+    if (ytId) {
+        return (
+            <div className="relative mt-2 mb-1 rounded-xl overflow-hidden max-w-sm w-full bg-black shadow-md border border-black/10 aspect-video">
+                <iframe
+                    className="w-full h-full"
+                    src={`https://www.youtube.com/embed/${ytId}?rel=0&modestbranding=1`}
+                    title="YouTube video player"
+                    frameBorder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                ></iframe>
+            </div>
+        );
+    }
+
+    return <CustomVideoPlayer src={src} />;
+}
+
 window.CustomAudioPlayer = CustomAudioPlayer;
 window.CustomVideoPlayer = CustomVideoPlayer;
+window.UniversalVideoPlayer = UniversalVideoPlayer;

@@ -311,8 +311,18 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
         vibrate(50);
         recordedChunksRef.current = [];
         
-        // Highly compressed video
-        const options = { mimeType: 'video/webm; codecs=vp9', videoBitsPerSecond: 250000, audioBitsPerSecond: 16000 };
+        // Determinar o melhor mimeType suportado
+        let mimeType = '';
+        if (MediaRecorder.isTypeSupported('video/webm; codecs=vp9')) {
+            mimeType = 'video/webm; codecs=vp9';
+        } else if (MediaRecorder.isTypeSupported('video/webm')) {
+            mimeType = 'video/webm';
+        } else if (MediaRecorder.isTypeSupported('video/mp4')) {
+            mimeType = 'video/mp4';
+        }
+        
+        const options = mimeType ? { mimeType, videoBitsPerSecond: 250000, audioBitsPerSecond: 16000 } : { videoBitsPerSecond: 250000, audioBitsPerSecond: 16000 };
+        
         try {
             mediaRecorderRef.current = new MediaRecorder(streamRef.current, options);
         } catch (e) {
@@ -325,9 +335,10 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
 
         mediaRecorderRef.current.onstop = () => {
             clearInterval(recordingDurationRef.current);
-            const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+            const actualMimeType = mediaRecorderRef.current.mimeType || mimeType || 'video/mp4';
+            const blob = new Blob(recordedChunksRef.current, { type: actualMimeType });
             const url = URL.createObjectURL(blob);
-            setPreviewMedia({ type: 'video', url, blob });
+            setPreviewMedia({ type: 'video', url, blob, mimeType: actualMimeType });
             setIsRecording(false);
             setRecordingTime(0);
         };
@@ -375,8 +386,9 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
     const handleSend = () => {
         if (previewMedia) {
             // Convert to File object
-            const ext = previewMedia.type === 'image' ? 'jpg' : 'webm';
-            const type = previewMedia.type === 'image' ? 'image/jpeg' : 'video/webm';
+            const isMp4 = previewMedia.mimeType && previewMedia.mimeType.includes('mp4');
+            const ext = previewMedia.type === 'image' ? 'jpg' : (isMp4 ? 'mp4' : 'webm');
+            const type = previewMedia.type === 'image' ? 'image/jpeg' : (previewMedia.mimeType || 'video/mp4');
             const file = new File([previewMedia.blob], `capture_${Date.now()}.${ext}`, { type });
             onCapture(file, previewMedia.type);
         }
@@ -386,7 +398,9 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
         if (previewMedia) {
             const a = document.createElement('a');
             a.href = previewMedia.url;
-            a.download = `capture_${Date.now()}.${previewMedia.type === 'image' ? 'jpg' : 'webm'}`;
+            const isMp4 = previewMedia.mimeType && previewMedia.mimeType.includes('mp4');
+            const ext = previewMedia.type === 'image' ? 'jpg' : (isMp4 ? 'mp4' : 'webm');
+            a.download = `capture_${Date.now()}.${ext}`;
             a.click();
             vibrate(50);
         }

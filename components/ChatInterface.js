@@ -42,6 +42,7 @@ function ChatInterface({ user, onLogout }) {
     const [editingMessage, setEditingMessage] = React.useState(null);
     const [featuredHours, setFeaturedHours] = React.useState(1);
     const [showFeaturedModal, setShowFeaturedModal] = React.useState(false);
+    const [showBetaAlert, setShowBetaAlert] = React.useState(false);
 
     const cleanupOldFiles = async (msgs, refPath) => {
         const now = Date.now();
@@ -846,16 +847,44 @@ function ChatInterface({ user, onLogout }) {
                                         </div>
                                     </div>
                                     <button onClick={async () => {
-                                        const newU = editUsername.trim().toLowerCase();
-                                        if(!newU) return showToastMessage("Arroba inválido", "error");
-                                        if(newU === allUsersData[user.id]?.username) return setShowUserProfileCard(false);
-                                        const snap = await db.ref('users').orderByChild('username').equalTo(newU).once('value');
+                                        const BAD_WORDS = ["palavrao", "admin", "root", "suporte", "puta", "merda", "caralho", "foda"];
+                                        const validateUsernameFormat = (u) => {
+                                            if (!u || u.length < 6) return "O @arroba deve ter no mínimo 6 caracteres.";
+                                            if (u.includes('@')) return "O @arroba não deve conter o caractere @ duplicado.";
+                                            if (/[^a-zA-Z0-9_]/i.test(u)) return "O @arroba só pode conter letras, números e underline (_).";
+                                            if (!/\d/.test(u)) return "O @arroba deve conter pelo menos um número.";
+                                            if (!/[A-Z]/.test(u)) return "O @arroba deve conter pelo menos uma letra maiúscula.";
+                                            for (let i = 0; i < u.length - 2; i++) {
+                                                const c1 = u.charCodeAt(i);
+                                                const c2 = u.charCodeAt(i+1);
+                                                const c3 = u.charCodeAt(i+2);
+                                                if (c1 >= 48 && c1 <= 57 && c2 === c1 + 1 && c3 === c2 + 1) {
+                                                    return "O @arroba não pode conter sequências numéricas (ex: 123).";
+                                                }
+                                            }
+                                            const lowerUser = u.toLowerCase();
+                                            for (const badWord of BAD_WORDS) {
+                                              if (lowerUser.includes(badWord)) return "Este @arroba contém palavras não permitidas.";
+                                            }
+                                            return null;
+                                        };
+
+                                        const newU = editUsername.trim();
+                                        const validationError = validateUsernameFormat(newU);
+                                        if (validationError) {
+                                            showToastMessage(validationError, "error");
+                                            return;
+                                        }
+
+                                        const lowerNewU = newU.toLowerCase();
+                                        if(lowerNewU === allUsersData[user.id]?.username) return setShowUserProfileCard(false);
+                                        const snap = await db.ref('users').orderByChild('username').equalTo(lowerNewU).once('value');
                                         if(snap.exists() && Object.keys(snap.val())[0] !== user.id) {
                                             showToastMessage("Arroba já em uso!", "error");
                                             return;
                                         }
-                                        await db.ref(`users/${user.id}`).update({username: newU});
-                                        showToastMessage("Arroba atualizado!");
+                                        await db.ref(`users/${user.id}`).update({username: lowerNewU});
+                                        showToastMessage("Arroba atualizado!", "success");
                                         setShowUserProfileCard(false);
                                     }} className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-colors">
                                         Salvar Alterações
@@ -1001,8 +1030,69 @@ function ChatInterface({ user, onLogout }) {
 
             <SettingsMenu isOpen={showSettingsMenu} onClose={() => setShowSettingsMenu(false)} />
 
+            {/* Barra Inferior (Bottom Bar) com botão Beta */}
+            <div className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 flex items-center justify-around py-2 pb-safe shadow-[0_-2px_10px_rgba(0,0,0,0.05)] z-30">
+                <button onClick={() => {
+                    const settings = window.SettingsManager ? window.SettingsManager.getSettings() : {};
+                    if (!settings.betaExperiences) {
+                        setShowBetaAlert(true);
+                    } else {
+                        window.location.href = 'social.html';
+                    }
+                }} className="flex flex-col items-center p-2 text-gray-500 hover:text-indigo-600 transition-colors">
+                    <div className="icon-layout-grid text-2xl"></div>
+                    <span className="text-[10px] font-bold mt-1">Social</span>
+                </button>
+
+                <button onClick={() => {
+                    const settings = window.SettingsManager ? window.SettingsManager.getSettings() : {};
+                    if (!settings.betaExperiences) {
+                        setShowBetaAlert(true);
+                    } else {
+                        window.location.href = 'social.html';
+                    }
+                }} className="flex flex-col items-center justify-center w-14 h-14 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full shadow-lg text-white transform -translate-y-4 hover:scale-105 transition-transform border-4 border-white">
+                    <div className="icon-plus text-3xl"></div>
+                </button>
+
+                <button onClick={() => { window.location.href = 'credits.html'; }} className="flex flex-col items-center p-2 text-amber-500 hover:text-amber-600 transition-colors">
+                    <div className="icon-coins text-2xl"></div>
+                    <span className="text-[10px] font-bold mt-1">Créditos</span>
+                </button>
+            </div>
+
+            {/* Desktop Float Button for Beta */}
+            <div className="hidden md:flex fixed bottom-6 left-6 z-30 gap-4">
+                 <button onClick={() => {
+                    const settings = window.SettingsManager ? window.SettingsManager.getSettings() : {};
+                    if (!settings.betaExperiences) {
+                        setShowBetaAlert(true);
+                    } else {
+                        window.location.href = 'social.html';
+                    }
+                }} className="flex items-center gap-2 bg-white text-indigo-600 px-4 py-3 rounded-full shadow-lg hover:bg-indigo-50 font-bold border border-indigo-100 transition-all">
+                    <div className="icon-sparkles"></div> Beta Social
+                </button>
+            </div>
+
+            {showBetaAlert && (
+                <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full text-center">
+                        <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <div className="icon-flask-conical text-3xl"></div>
+                        </div>
+                        <h2 className="text-xl font-bold text-gray-800 mb-2">Recurso em Beta</h2>
+                        <p className="text-gray-600 text-sm mb-6">Você precisa habilitar "Permitir experiências Beta" nas Configurações Avançadas do menu principal para acessar esta área.</p>
+                        <div className="flex flex-col gap-3">
+                            <button onClick={() => { setShowBetaAlert(false); setShowSettingsMenu(true); }} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700">Abrir Configurações</button>
+                            <button onClick={() => setShowBetaAlert(false)} className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200">Cancelar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {toastMessage && (
-                <div className={`fixed bottom-4 right-4 p-4 rounded-xl shadow-2xl text-white font-medium z-50 flex items-center gap-2 transform transition-all animate-fade-in-up ${toastMessage.type === 'error' ? 'bg-red-500' : 'bg-gray-800'}`}>
+                <div className={`fixed bottom-20 right-4 md:bottom-4 p-4 rounded-xl shadow-2xl text-white font-medium z-[60] flex items-center gap-2 transform transition-all animate-fade-in-up ${toastMessage.type === 'error' ? 'bg-red-500' : 'bg-gray-800'}`}>
                     <div className={`icon-${toastMessage.type === 'error' ? 'alert-circle' : 'check-circle'} text-xl`}></div>
                     {toastMessage.message}
                 </div>

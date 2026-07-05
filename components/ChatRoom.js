@@ -40,12 +40,26 @@ function ChatRoom({ user, chat }) {
 
     const encryptionKey = chat.id;
 
+    const getYouTubeId = (url) => {
+        const regExp = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+        const match = url.match(regExp);
+        return match ? match[1] : null;
+    };
+
     const renderTextWithLinks = (text) => {
         if (!text) return null;
         const processedText = window.CensorUtils ? window.CensorUtils.censor(text) : text;
         const urlRegex = /(https?:\/\/[^\s]+)/g;
-        return processedText.split(urlRegex).map((part, i) => {
+        
+        let hasYouTube = false;
+        let ytUrl = null;
+
+        const parts = processedText.split(urlRegex).map((part, i) => {
             if (part.match(urlRegex)) {
+                if (getYouTubeId(part) && !hasYouTube) {
+                    hasYouTube = true;
+                    ytUrl = part;
+                }
                 return (
                     <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="underline font-bold hover:opacity-80 transition-opacity drop-shadow-sm" style={{ color: 'inherit' }} onClick={(e) => e.stopPropagation()}>
                         {part}
@@ -54,6 +68,17 @@ function ChatRoom({ user, chat }) {
             }
             return part;
         });
+
+        return (
+            <>
+                <div>{parts}</div>
+                {hasYouTube && ytUrl && window.UniversalVideoPlayer && (
+                    <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                        <window.UniversalVideoPlayer src={ytUrl} />
+                    </div>
+                )}
+            </>
+        );
     };
     const [pullY, setPullY] = React.useState(0);
     const [appSettings, setAppSettings] = React.useState(window.SettingsManager.getSettings());
@@ -685,6 +710,9 @@ function ChatRoom({ user, chat }) {
         if (type === 'image' && !verificarPermissao('enviar_foto')) {
             showToastMessage("Sem permissão para imagens.", "error"); return;
         }
+        if (type === 'video' && !verificarPermissao('enviar_video')) {
+            showToastMessage("Sem permissão para vídeos.", "error"); return;
+        }
         if (type === 'file' && !verificarPermissao('enviar_documento')) {
             showToastMessage("Sem permissão para documentos.", "error"); return;
         }
@@ -967,7 +995,7 @@ function ChatRoom({ user, chat }) {
                                 {msg.type === 'image' && msg.fileData && <img src={msg.fileData} alt="Shared" className="max-w-full rounded mt-2 mb-1" />}
                                 {msg.type === 'video' && msg.fileData && (
                                     <div className="max-w-full overflow-hidden rounded-lg mt-2 mb-1 bg-black flex justify-center items-center">
-                                        <window.CustomVideoPlayer src={msg.fileData} />
+                                        {window.UniversalVideoPlayer ? <window.UniversalVideoPlayer src={msg.fileData} /> : <window.CustomVideoPlayer src={msg.fileData} />}
                                     </div>
                                 )}
                                 {msg.type === 'audio' && msg.fileData && <window.CustomAudioPlayer src={msg.fileData} isOwn={msg.senderId === user.id} />}

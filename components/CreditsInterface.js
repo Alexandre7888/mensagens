@@ -1,6 +1,7 @@
 function CreditsInterface() {
     const [userData, setUserData] = React.useState(null);
     const [credits, setCredits] = React.useState(0);
+    const [earnedCredits, setEarnedCredits] = React.useState(0);
     const [loading, setLoading] = React.useState(true);
     const [actionLoading, setActionLoading] = React.useState(false);
     const [adTokenLink, setAdTokenLink] = React.useState('');
@@ -138,6 +139,7 @@ function CreditsInterface() {
                     userRef.on('value', snap => {
                         const data = snap.val() || {};
                         setCredits(data.credits || 0);
+                        setEarnedCredits(data.earnedCredits || 0);
                         setLoading(false);
                     });
 
@@ -167,6 +169,38 @@ function CreditsInterface() {
 
         initializeCredits();
     }, []);
+
+    const redeemEarnedCredits = async () => {
+        if (earnedCredits <= 0) return;
+        if (!userData || !userData.uid) return;
+
+        if (!window.confirm(`Deseja resgatar ${earnedCredits} créditos arrecadados? Uma taxa de 10% será aplicada.`)) return;
+
+        setActionLoading(true);
+        try {
+            const tax = 0.10; // 10%
+            const netAmount = Math.floor(earnedCredits * (1 - tax));
+            const platformFee = earnedCredits - netAmount;
+
+            const userRef = window.firebaseDB.ref(`users/${userData.uid}`);
+            const userSnap = await userRef.once('value');
+            const data = userSnap.val() || {};
+            const currentCredits = data.credits || 0;
+            
+            const updates = {};
+            updates['credits'] = currentCredits + netAmount;
+            updates['earnedCredits'] = 0;
+
+            await userRef.update(updates);
+
+            alert(`🎉 Resgate concluído!\n\n💎 Valor resgatado: ${earnedCredits} créditos\n💸 Taxa da plataforma (10%): -${platformFee} créditos\n💰 Você recebeu: ${netAmount} créditos!`);
+        } catch (error) {
+            console.error("Erro ao resgatar créditos:", error);
+            alert("Erro ao resgatar créditos arrecadados.");
+        } finally {
+            setActionLoading(false);
+        }
+    };
 
     const createPayment = async () => {
         const valor = parseFloat(rechargeValue);
@@ -253,13 +287,31 @@ function CreditsInterface() {
             <div className="max-w-4xl mx-auto w-full p-4 space-y-6">
                 
                 {/* Info Card */}
-                <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div>
-                        <h2 className="text-xl font-bold text-gray-800 mb-1">Seu Saldo Atual</h2>
-                        <p className="text-gray-500 text-sm">Use seus créditos para destacar seu perfil ou comprar cosméticos.</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col items-center text-center justify-center gap-2">
+                        <h2 className="text-lg font-bold text-gray-800">Seu Saldo Atual</h2>
+                        <p className="text-gray-500 text-xs mb-2">Créditos para uso na plataforma</p>
+                        <div className="flex items-center gap-2 text-3xl font-bold text-indigo-600 bg-indigo-50 px-6 py-4 rounded-xl border border-indigo-100 w-full justify-center">
+                            <div className="icon-coins text-yellow-500"></div> {credits}
+                        </div>
                     </div>
-                    <div className="flex items-center gap-3 text-4xl font-bold text-indigo-600 bg-indigo-50 px-8 py-6 rounded-xl border border-indigo-100">
-                        <div className="icon-coins text-yellow-500"></div> {credits}
+
+                    <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col items-center text-center justify-center gap-2">
+                        <h2 className="text-lg font-bold text-gray-800">Arrecadações</h2>
+                        <p className="text-gray-500 text-xs mb-2">Ganhos de Lives e Redes Sociais</p>
+                        <div className="flex flex-col w-full gap-2">
+                            <div className="flex items-center gap-2 text-3xl font-bold text-green-600 bg-green-50 px-6 py-4 rounded-xl border border-green-100 w-full justify-center">
+                                <div className="icon-gem text-green-500"></div> {earnedCredits}
+                            </div>
+                            <button 
+                                onClick={redeemEarnedCredits}
+                                disabled={earnedCredits <= 0 || actionLoading}
+                                className={`w-full py-2.5 rounded-xl font-bold text-sm transition-colors flex items-center justify-center gap-2 ${earnedCredits > 0 && !actionLoading ? 'bg-green-600 text-white hover:bg-green-700 shadow-sm shadow-green-600/20' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+                            >
+                                {actionLoading ? <div className="icon-loader animate-spin"></div> : <div className="icon-arrow-down-to-line"></div>}
+                                Resgatar (Taxa 10%)
+                            </button>
+                        </div>
                     </div>
                 </div>
 

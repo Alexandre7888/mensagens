@@ -83,7 +83,6 @@ function AdminPanel() {
       }
       
       if (status === 'aprovado' && bUser) {
-        // Se aprovado, desbane automaticamente
         if (bUser.backup) {
            const jsonString = decodeURIComponent(escape(atob(bUser.backup)));
            const userData = JSON.parse(jsonString);
@@ -102,7 +101,6 @@ function AdminPanel() {
   };
 
   const handleBanUser = async (user, type) => {
-    // type pode ser: 'permanent', '15m', '1h', '24h', '7d'
     let banUntil = null;
     let label = 'Permanente';
     const now = Date.now();
@@ -113,11 +111,9 @@ function AdminPanel() {
     if (type === '7d') { banUntil = now + (7 * 24 * 60 * 60 * 1000); label = '7 Dias'; }
 
     try {
-      // 1. Converter dados do usuário para Base64 (backup)
       const userJsonString = JSON.stringify(user);
       const base64Data = btoa(unescape(encodeURIComponent(userJsonString)));
 
-      // 2. Salvar flag de banimento com o backup no nó 'banned_users'
       const banPayload = {
         bannedAt: now,
         banUntil: banUntil,
@@ -132,17 +128,13 @@ function AdminPanel() {
       }
 
       await window.firebaseDB.ref(`banned_users/${user.id}`).set(banPayload);
-
-      // 3. Remover usuário do nó principal
       await window.firebaseDB.ref(`users/${user.id}`).remove();
 
-      // Atualiza a lista local
       setBanModalUser(null);
       if (selectedUser?.id === user.id) setSelectedUser(null);
       loadData();
       
       alert(`Usuário banido com sucesso (${label}).`);
-
     } catch (error) {
       console.error('Erro ao banir usuário:', error);
       alert('Erro ao banir usuário.');
@@ -169,22 +161,17 @@ function AdminPanel() {
   };
 
   const handleWipeAndBackup = async () => {
-    if (!window.confirm("⚠️ ATENÇÃO: Isso apagará TODO o banco de dados do servidor (usuários, grupos, mensagens) e criará um backup no armazenamento local do seu navegador. O seu acesso de administrador será mantido. Tem certeza que deseja continuar?")) return;
+    if (!window.confirm("⚠️ ATENÇÃO: Isso apagará TODO o banco de dados do servidor e criará um backup local. O seu acesso de administrador será mantido. Tem certeza que deseja continuar?")) return;
     
     setLoading(true);
     try {
-      // Pega todos os dados do banco
       const snap = await window.firebaseDB.ref('/').once('value');
       const allData = snap.val();
       
       if (allData) {
-        // Salva backup no localStorage
         localStorage.setItem('admin_db_backup', JSON.stringify(allData));
-        
-        // Apaga tudo
         await window.firebaseDB.ref('/').remove();
         
-        // Restaura as configurações do sistema para o admin não perder o acesso
         if (allData.system_config) {
           await window.firebaseDB.ref('system_config').set(allData.system_config);
         }
@@ -249,226 +236,280 @@ function AdminPanel() {
     setLoading(false);
   };
 
+  const tabs = [
+    { id: 'users', label: 'Usuários Ativos', icon: 'users', count: users.length },
+    { id: 'banned', label: 'Usuários Banidos', icon: 'user-x', count: bannedUsers.length },
+    { id: 'moderations', label: 'Moderações', icon: 'shield-alert', count: moderations.length },
+    { id: 'groups', label: 'Monitoramento', icon: 'activity' },
+    { id: 'danger', label: 'Sistema & Dados', icon: 'database' }
+  ];
+
   return (
-    <div className="flex h-screen overflow-hidden" data-name="admin-panel" data-file="components/AdminPanel.js">
-      {/* Sidebar */}
-      <div className="w-64 bg-gray-800 border-r border-gray-700 flex flex-col">
-        <div className="p-4 border-b border-gray-700 flex items-center gap-3">
-          <div className="icon-shield-check text-2xl text-green-500"></div>
-          <h1 className="font-bold text-lg text-white">Central Admin</h1>
+    <div className="flex h-screen bg-[#0f111a] text-slate-300 font-sans" data-name="admin-panel" data-file="components/AdminPanel.js">
+      {/* Sidebar Corporativa */}
+      <div className="w-72 bg-[#161b22] border-r border-slate-800/60 flex flex-col flex-shrink-0 shadow-2xl z-20 relative">
+        <div className="h-20 flex items-center px-6 border-b border-slate-800/60">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
+              <div className="icon-shield-check text-white text-xl"></div>
+            </div>
+            <div>
+              <h1 className="font-bold text-slate-100 text-lg tracking-tight">Phantora Admin</h1>
+              <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Centro de Controle</p>
+            </div>
+          </div>
         </div>
-        <nav className="flex-1 p-4 space-y-2">
-          <button 
-            onClick={() => setActiveTab('users')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'users' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-gray-700 hover:text-white'}`}
-          >
-            <div className="icon-users"></div> Usuários
-          </button>
-          <button 
-            onClick={() => setActiveTab('banned')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'banned' ? 'bg-red-600 text-white' : 'text-gray-400 hover:bg-gray-700 hover:text-white'}`}
-          >
-            <div className="icon-user-x"></div> Banidos ({bannedUsers.length})
-          </button>
-          <button 
-            onClick={() => setActiveTab('groups')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'groups' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-gray-700 hover:text-white'}`}
-          >
-            <div className="icon-message-square"></div> Monitoramento
-          </button>
-          <button 
-            onClick={() => setActiveTab('moderations')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'moderations' ? 'bg-yellow-600 text-white' : 'text-gray-400 hover:bg-gray-700 hover:text-yellow-500'}`}
-          >
-            <div className="icon-hammer"></div> Moderações
-          </button>
-          <button 
-            onClick={() => setActiveTab('danger')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'danger' ? 'bg-red-900 text-white' : 'text-gray-400 hover:bg-gray-700 hover:text-red-500'}`}
-          >
-            <div className="icon-triangle-alert"></div> Zona Perigosa
-          </button>
-        </nav>
+        
+        <div className="flex-1 overflow-y-auto py-6 px-4 space-y-1 custom-scrollbar">
+          <p className="px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Gerenciamento</p>
+          
+          {tabs.map(tab => (
+            <button 
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`w-full flex items-center justify-between px-3 py-3 rounded-xl transition-all duration-200 group ${
+                activeTab === tab.id 
+                ? 'bg-indigo-500/10 text-indigo-400' 
+                : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`icon-${tab.icon} text-lg ${activeTab === tab.id ? 'text-indigo-400' : 'text-slate-500 group-hover:text-slate-300'}`}></div>
+                <span className="font-medium text-sm">{tab.label}</span>
+              </div>
+              {tab.count !== undefined && (
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  activeTab === tab.id ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-800 text-slate-400 group-hover:bg-slate-700'
+                }`}>
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+        
+        <div className="p-4 border-t border-slate-800/60 bg-slate-900/30">
+          <div className="flex items-center gap-3 px-3 py-2">
+            <div className="w-8 h-8 bg-emerald-500/20 rounded-full flex items-center justify-center border border-emerald-500/30">
+              <div className="icon-wifi text-emerald-400 text-sm"></div>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-slate-200">Sistema Online</p>
+              <p className="text-xs text-slate-500">Conectado ao Firebase</p>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col bg-gray-900">
-        <div className="p-6 border-b border-gray-800 flex justify-between items-center bg-gray-800/50">
-          <h2 className="text-xl font-bold capitalize text-white">{activeTab === 'banned' ? 'Usuários Banidos' : activeTab === 'danger' ? 'Zona Perigosa' : activeTab === 'moderations' ? 'Moderações' : activeTab}</h2>
-          <button onClick={loadData} className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-300">
-            <div className="icon-refresh-cw"></div>
-          </button>
-        </div>
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 bg-[#0b0d14] relative">
+        {/* Top Header */}
+        <header className="h-20 bg-[#0f111a]/80 backdrop-blur-md border-b border-slate-800/60 flex items-center justify-between px-8 sticky top-0 z-10">
+          <div>
+            <h2 className="text-2xl font-semibold text-slate-100 tracking-tight">
+              {tabs.find(t => t.id === activeTab)?.label}
+            </h2>
+            <p className="text-sm text-slate-500 mt-0.5">
+              Gerencie os dados e mantenha a comunidade segura.
+            </p>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            <button onClick={loadData} className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-medium transition-colors border border-slate-700/50 shadow-sm">
+              <div className={`icon-refresh-cw ${loading ? 'animate-spin' : ''}`}></div>
+              Atualizar Dados
+            </button>
+          </div>
+        </header>
 
-        <div className="flex-1 overflow-auto p-6">
+        {/* Content Wrapper */}
+        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
           {loading ? (
-            <div className="flex justify-center items-center h-full">
-              <div className="icon-loader animate-spin text-4xl text-indigo-500"></div>
+            <div className="flex flex-col justify-center items-center h-full space-y-4">
+              <div className="w-12 h-12 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin"></div>
+              <p className="text-slate-400 font-medium animate-pulse">Sincronizando com o servidor...</p>
             </div>
           ) : (
-            <>
+            <div className="max-w-7xl mx-auto">
+              
+              {/* Usuários Ativos (Formato Tabela Profissional) */}
               {activeTab === 'users' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {users.map(user => (
-                    <div key={user.id} className="bg-gray-800 border border-gray-700 rounded-xl p-4 flex flex-col">
-                      <div className="flex items-center gap-4 mb-4">
-                        <img src={user.profilePicture || 'https://resource.trickle.so/coding_trickle/trickle_avatar.png'} alt="Avatar" className="w-12 h-12 rounded-full object-cover bg-gray-700" />
-                        <div>
-                          <h3 className="font-bold text-white">{user.username || user.nome || 'Sem Nome'}</h3>
-                          <p className="text-xs text-gray-400">ID: {user.id}</p>
-                        </div>
-                      </div>
-                      <div className="mt-auto pt-4 border-t border-gray-700 flex gap-2">
-                        <button onClick={() => setSelectedUser(user)} className="flex-1 py-2 bg-indigo-900/30 text-indigo-400 hover:bg-indigo-900/50 rounded-lg text-sm font-medium transition-colors">
-                          Inspecionar
-                        </button>
-                        <button onClick={() => openBanModal(user)} className="flex-1 py-2 bg-red-900/30 text-red-400 hover:bg-red-900/50 rounded-lg text-sm font-medium transition-colors">
-                          Banir
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                <div className="bg-[#161b22] border border-slate-800/60 rounded-2xl shadow-xl overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-900/50 border-b border-slate-800/60">
+                          <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Usuário</th>
+                          <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">ID Único</th>
+                          <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Status</th>
+                          <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider text-right">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {users.map(user => (
+                          <tr key={user.id} className="hover:bg-slate-800/30 transition-colors group">
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <img src={user.profilePicture || 'https://resource.trickle.so/coding_trickle/trickle_avatar.png'} alt="Avatar" className="w-10 h-10 rounded-full object-cover bg-slate-800 border border-slate-700" />
+                                <div>
+                                  <p className="font-medium text-slate-200">{user.username || user.nome || 'Sem Nome'}</p>
+                                  <p className="text-xs text-slate-500">{user.email || 'Sem email'}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <code className="text-xs text-slate-400 bg-slate-900 px-2 py-1 rounded border border-slate-800 font-mono">
+                                {user.id.substring(0, 15)}...
+                              </code>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                                Ativo
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <div className="flex justify-end gap-2">
+                                <button onClick={() => setSelectedUser(user)} className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10 rounded-lg transition-colors" title="Inspecionar">
+                                  <div className="icon-eye"></div>
+                                </button>
+                                <button onClick={() => openBanModal(user)} className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Banir">
+                                  <div className="icon-gavel"></div>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {users.length === 0 && (
+                    <div className="p-12 text-center text-slate-500">Nenhum usuário ativo encontrado.</div>
+                  )}
                 </div>
               )}
 
+              {/* Usuários Banidos (Formato Tabela Profissional) */}
               {activeTab === 'banned' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {bannedUsers.length === 0 && <p className="text-gray-400">Nenhum usuário banido.</p>}
-                  {bannedUsers.map(bUser => {
-                    const originalData = bUser.backup ? JSON.parse(decodeURIComponent(escape(atob(bUser.backup)))) : {};
-                    const isTemp = !!bUser.banUntil;
-                    const expired = isTemp && Date.now() > bUser.banUntil;
-                    const userAppeal = appeals.find(a => a.userId === bUser.id);
-                    
-                    return (
-                      <div key={bUser.id} className="bg-gray-800 border border-red-900/50 rounded-xl p-4 flex flex-col">
-                        <div className="flex items-center gap-4 mb-4">
-                          <img src={originalData.profilePicture || 'https://resource.trickle.so/coding_trickle/trickle_avatar.png'} alt="Avatar" className="w-12 h-12 rounded-full object-cover grayscale opacity-50" />
-                          <div>
-                            <h3 className="font-bold text-gray-300">{originalData.username || originalData.nome || 'Desconhecido'}</h3>
-                            <p className="text-xs text-gray-500">ID: {bUser.id}</p>
-                          </div>
-                        </div>
-                        <div className="mb-4 text-xs">
-                          {isTemp ? (
-                             <span className={expired ? "text-green-400" : "text-yellow-500"}>
-                               Temp: expira em {new Date(bUser.banUntil).toLocaleString()} {expired ? '(Expirado)' : ''}
-                             </span>
-                          ) : (
-                             <span className="text-red-500">Banimento Permanente</span>
-                          )}
-                        </div>
-                        
-                        {userAppeal && (
-                          <div className="mb-4 bg-gray-900 p-3 rounded-lg border border-yellow-900/50">
-                            <h4 className="text-yellow-500 font-bold text-xs mb-2 flex items-center gap-2">
-                              <div className="icon-scan-face"></div> Verificação Facial (Apelação)
-                            </h4>
-                            <p className="text-xs text-gray-400 mb-2">Status: <span className="font-bold uppercase text-white">{userAppeal.status}</span></p>
-                            
-                            {userAppeal.fotoUrl && (
-                              <div className="relative mb-3 flex justify-center bg-gray-800 rounded-lg p-2 border border-gray-700">
-                                  <img src={userAppeal.fotoUrl} alt="Rosto Capturado" className="w-24 h-24 object-cover rounded-full border-2 border-indigo-500" />
-                              </div>
-                            )}
-
-                            {userAppeal.metadata && (
-                              <div className="grid grid-cols-2 gap-2 mb-3">
-                                  <div className="bg-gray-800 p-1.5 rounded border border-gray-700">
-                                      <span className="text-[10px] text-gray-500 block">Qualidade</span>
-                                      <span className="text-xs font-bold text-green-400">{userAppeal.metadata.qualityScore}%</span>
+                <div className="bg-[#161b22] border border-red-900/30 rounded-2xl shadow-xl overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-900/50 border-b border-slate-800/60">
+                          <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Usuário</th>
+                          <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Motivo / Tipo</th>
+                          <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Apelação</th>
+                          <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider text-right">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {bannedUsers.map(bUser => {
+                          const originalData = bUser.backup ? JSON.parse(decodeURIComponent(escape(atob(bUser.backup)))) : {};
+                          const isTemp = !!bUser.banUntil;
+                          const expired = isTemp && Date.now() > bUser.banUntil;
+                          const userAppeal = appeals.find(a => a.userId === bUser.id);
+                          
+                          return (
+                            <tr key={bUser.id} className="hover:bg-slate-800/30 transition-colors">
+                              <td className="px-6 py-4">
+                                <div className="flex items-center gap-3">
+                                  <div className="relative">
+                                    <img src={originalData.profilePicture || 'https://resource.trickle.so/coding_trickle/trickle_avatar.png'} alt="Avatar" className="w-10 h-10 rounded-full object-cover bg-slate-800 border border-slate-700 grayscale opacity-70" />
+                                    <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-[#161b22] flex items-center justify-center">
+                                      <div className="icon-x text-[8px] text-white font-bold"></div>
+                                    </div>
                                   </div>
-                                  <div className="bg-gray-800 p-1.5 rounded border border-gray-700">
-                                      <span className="text-[10px] text-gray-500 block">Simetria</span>
-                                      <span className="text-xs font-bold text-indigo-400">{(userAppeal.metadata.symmetryScore * 100).toFixed(1)}%</span>
+                                  <div>
+                                    <p className="font-medium text-slate-300 line-through decoration-red-500/50">{originalData.username || originalData.nome || 'Desconhecido'}</p>
+                                    <code className="text-[10px] text-slate-500 font-mono">{bUser.id.substring(0, 15)}...</code>
                                   </div>
-                                  <div className="bg-gray-800 p-1.5 rounded border border-gray-700">
-                                      <span className="text-[10px] text-gray-500 block">Dist. Olhos</span>
-                                      <span className="text-xs font-bold text-gray-300">{userAppeal.metadata.eyeDistance}</span>
+                                </div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <div className="flex flex-col gap-1">
+                                  <span className={`inline-flex items-center w-fit px-2 py-0.5 rounded text-[10px] font-medium border ${
+                                    isTemp ? (expired ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20')
+                                    : 'bg-red-500/10 text-red-400 border-red-500/20'
+                                  }`}>
+                                    {isTemp ? (expired ? 'Expirado' : `Temp: ${new Date(bUser.banUntil).toLocaleDateString()}`) : 'Permanente'}
+                                  </span>
+                                  {bUser.reason && <p className="text-xs text-slate-400 max-w-xs truncate">{bUser.reason}</p>}
+                                </div>
+                              </td>
+                              <td className="px-6 py-4">
+                                {userAppeal ? (
+                                  <div className="flex flex-col gap-2 bg-slate-900/50 p-3 rounded-lg border border-slate-800">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-xs font-semibold text-slate-300">Selfie enviada</span>
+                                      <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${
+                                        userAppeal.status === 'pendente' ? 'bg-amber-500/20 text-amber-400' :
+                                        userAppeal.status === 'aprovado' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+                                      }`}>{userAppeal.status}</span>
+                                    </div>
+                                    {userAppeal.status === 'pendente' && (
+                                      <div className="flex gap-2 mt-1">
+                                        <button onClick={() => handleUpdateAppealStatus(userAppeal.id, 'aprovado', bUser)} className="flex-1 py-1 bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 rounded text-[10px] font-bold transition">Aprovar</button>
+                                        <button onClick={() => handleUpdateAppealStatus(userAppeal.id, 'rejeitado', null)} className="flex-1 py-1 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded text-[10px] font-bold transition">Rejeitar</button>
+                                      </div>
+                                    )}
                                   </div>
-                                  <div className="bg-gray-800 p-1.5 rounded border border-gray-700">
-                                      <span className="text-[10px] text-gray-500 block">Captura</span>
-                                      <span className="text-[10px] font-bold text-gray-300">{new Date(userAppeal.timestamp).toLocaleTimeString()}</span>
-                                  </div>
-                              </div>
-                            )}
-                            
-                            {userAppeal.status === 'pendente' && (
-                              <div className="flex gap-2 mt-2">
-                                <button 
-                                  onClick={() => handleUpdateAppealStatus(userAppeal.id, 'aprovado', bUser)}
-                                  className="flex-1 py-1.5 bg-green-600 text-white rounded text-xs font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-1"
-                                >
-                                  <div className="icon-check"></div> Aprovar
+                                ) : (
+                                  <span className="text-xs text-slate-500 italic">Nenhuma apelação</span>
+                                )}
+                              </td>
+                              <td className="px-6 py-4 text-right">
+                                <button onClick={() => handleUnbanUser(bUser)} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-emerald-500/10 text-slate-300 hover:text-emerald-400 border border-slate-700 rounded-lg text-xs font-medium transition-all">
+                                  <div className="icon-rotate-ccw"></div> Restaurar
                                 </button>
-                                <button 
-                                  onClick={() => handleUpdateAppealStatus(userAppeal.id, 'rejeitado', null)}
-                                  className="flex-1 py-1.5 bg-red-600 text-white rounded text-xs font-bold hover:bg-red-700 transition-colors flex items-center justify-center gap-1"
-                                >
-                                  <div className="icon-x"></div> Rejeitar
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        <div className="mt-auto pt-4 border-t border-gray-700 flex gap-2">
-                          <button onClick={() => handleUnbanUser(bUser)} className="flex-1 py-2 bg-green-900/30 text-green-400 hover:bg-green-900/50 rounded-lg text-sm font-medium transition-colors">
-                            Desbanir Manualmente
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {bannedUsers.length === 0 && (
+                    <div className="p-12 text-center text-slate-500">Nenhum usuário banido no momento.</div>
+                  )}
                 </div>
               )}
 
+              {/* Moderações */}
               {activeTab === 'moderations' && (
-                <div className="grid grid-cols-1 gap-4">
-                  {moderations.length === 0 && <p className="text-gray-400">Nenhuma infração registrada.</p>}
+                <div className="space-y-4">
+                  {moderations.length === 0 && (
+                    <div className="bg-[#161b22] border border-slate-800/60 rounded-2xl p-12 text-center text-slate-500 shadow-sm">
+                      <div className="icon-shield-check text-4xl mx-auto mb-3 text-emerald-500/50"></div>
+                      <p>Nenhuma infração registrada pelo sistema automático.</p>
+                    </div>
+                  )}
                   {moderations.map(mod => {
                     const user = users.find(u => u.id === mod.usuarioId) || {};
                     return (
-                      <div key={mod.id} className="bg-gray-800 border border-yellow-900/50 rounded-xl p-4 flex flex-col md:flex-row gap-4 items-start md:items-center">
-                        <div className="flex items-center gap-4 flex-shrink-0">
-                          <img src={user.profilePicture || 'https://resource.trickle.so/coding_trickle/trickle_avatar.png'} alt="Avatar" className="w-12 h-12 rounded-full object-cover bg-gray-700" />
+                      <div key={mod.id} className="bg-[#161b22] border border-amber-900/30 hover:border-amber-500/50 transition-colors rounded-2xl p-5 shadow-lg flex flex-col md:flex-row gap-6 items-start md:items-center">
+                        <div className="flex items-center gap-4 min-w-[200px]">
+                          <img src={user.profilePicture || 'https://resource.trickle.so/coding_trickle/trickle_avatar.png'} alt="Avatar" className="w-12 h-12 rounded-full object-cover bg-slate-800 border border-slate-700" />
                           <div>
-                            <h3 className="font-bold text-white">{user.username || user.nome || 'Usuário Desconhecido'}</h3>
-                            <p className="text-xs text-gray-400">ID: {mod.usuarioId}</p>
+                            <h3 className="font-semibold text-slate-200">{user.username || user.nome || 'Usuário Desconhecido'}</h3>
+                            <p className="text-xs text-slate-500">ID: {mod.usuarioId?.substring(0,8)}...</p>
                           </div>
                         </div>
-                        <div className="flex-1 bg-gray-900 p-3 rounded-lg border border-gray-700 w-full">
-                          <div className="flex justify-between items-start mb-2">
-                            <span className="text-xs font-bold uppercase bg-red-900/50 text-red-400 px-2 py-1 rounded">Bloqueado: {mod.bloqueado ? 'Sim' : 'Não'}</span>
-                            <span className="text-xs text-gray-500">{new Date(mod.timestamp).toLocaleString()}</span>
-                          </div>
-                          <p className="text-sm text-gray-300 mb-1"><strong>Mensagem:</strong> {mod.mensagemOriginal}</p>
-                          <p className="text-xs text-yellow-500"><strong>Palavra detectada:</strong> {mod.palavraDetectada}</p>
+                        
+                        <div className="flex-1 bg-slate-900/50 p-4 rounded-xl border border-slate-800 w-full relative">
+                          <div className="absolute top-4 right-4 text-[10px] text-slate-500">{new Date(mod.timestamp).toLocaleString()}</div>
+                          <span className="inline-block px-2 py-0.5 bg-red-500/10 text-red-400 border border-red-500/20 rounded text-[10px] font-bold uppercase mb-2">
+                            {mod.bloqueado ? 'Mensagem Bloqueada' : 'Alerta Leve'}
+                          </span>
+                          <p className="text-sm text-slate-300 mb-2 border-l-2 border-slate-700 pl-3 italic">"{mod.mensagemOriginal}"</p>
+                          <p className="text-xs text-amber-500 font-medium">Filtro acionado por: <span className="text-amber-400 bg-amber-500/10 px-1 rounded">{mod.palavraDetectada}</span></p>
                         </div>
-                        <div className="flex-shrink-0 w-full md:w-auto flex flex-col md:flex-row gap-2 justify-end">
-                          <button 
-                            onClick={() => handleDismissModeration(mod.id)}
-                            className="px-3 py-2 bg-green-900/30 text-green-400 hover:bg-green-900/50 rounded-lg text-xs font-medium transition-colors whitespace-nowrap"
-                          >
-                            Moderação Leve (Ignorar)
+
+                        <div className="flex flex-col gap-2 min-w-[140px]">
+                          <button onClick={() => { if (user.id) openBanModal(user); else alert('Usuário não encontrado.'); }} className="w-full px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-semibold transition-colors shadow-lg shadow-red-500/20">
+                            Banir Usuário
                           </button>
-                          <button 
-                            onClick={() => {
-                              if (user.id) handleBanUser(user, '15m');
-                              else alert('Usuário não encontrado.');
-                            }}
-                            className="px-3 py-2 bg-yellow-900/30 text-yellow-400 hover:bg-yellow-900/50 rounded-lg text-xs font-medium transition-colors whitespace-nowrap"
-                          >
-                            Suspender 15m
-                          </button>
-                          <button 
-                            onClick={() => {
-                              if (user.id) openBanModal(user);
-                              else alert('Usuário não encontrado na base de dados para banir.');
-                            }}
-                            className="px-4 py-2 bg-red-900/30 text-red-400 hover:bg-red-900/50 rounded-lg text-sm font-bold transition-colors whitespace-nowrap"
-                          >
-                            Banir
+                          <button onClick={() => handleDismissModeration(mod.id)} className="w-full px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-medium transition-colors border border-slate-700">
+                            Ignorar (Limpar)
                           </button>
                         </div>
                       </div>
@@ -477,20 +518,27 @@ function AdminPanel() {
                 </div>
               )}
 
+              {/* Monitoramento de Grupos */}
               {activeTab === 'groups' && (
-                <div className="text-gray-400">
-                  <p className="mb-4">O monitoramento completo das mensagens, áudios e grupos está em modo leitura direta do banco de dados.</p>
-                  <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 font-mono text-sm max-h-[60vh] overflow-y-auto">
+                <div className="bg-[#161b22] border border-slate-800/60 rounded-2xl shadow-xl overflow-hidden flex flex-col h-[70vh]">
+                  <div className="p-6 border-b border-slate-800/60 bg-slate-900/30">
+                    <h3 className="text-lg font-semibold text-slate-200">Log de Comunidades (Tempo Real)</h3>
+                    <p className="text-sm text-slate-500">Monitoramento passivo de todas as atividades nos grupos.</p>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-[#0b0d14] font-mono text-sm">
                     {groups.map(group => (
-                      <div key={group.id} className="mb-6 pb-6 border-b border-gray-700 last:border-0">
-                        <h3 className="text-indigo-400 font-bold mb-2">Grupo: {group.name} ({group.id})</h3>
-                        <div className="pl-4 border-l-2 border-gray-700">
-                          <p className="text-gray-500 mb-2">Mensagens recentes:</p>
-                          {group.messages ? Object.entries(group.messages).slice(-5).map(([msgId, msg]) => (
-                            <div key={msgId} className="mb-2">
-                              <span className="text-green-400">{msg.senderName}:</span> <span className="text-gray-300">{msg.text || (msg.mediaUrl ? '[Mídia]' : '[Outro]')}</span>
+                      <div key={group.id} className="bg-[#161b22] border border-slate-800 p-4 rounded-xl">
+                        <div className="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
+                          <span className="text-indigo-400 font-bold">[{group.name}]</span>
+                          <span className="text-xs text-slate-500">ID: {group.id}</span>
+                        </div>
+                        <div className="space-y-2">
+                          {group.messages ? Object.entries(group.messages).slice(-10).map(([msgId, msg]) => (
+                            <div key={msgId} className="flex gap-3 hover:bg-slate-800/50 p-1 rounded">
+                              <span className="text-emerald-400 w-32 truncate shrink-0 text-right">{msg.senderName}:</span> 
+                              <span className="text-slate-300 flex-1">{msg.text || (msg.mediaUrl ? '[Mídia Anexada]' : '[Ação do Sistema]')}</span>
                             </div>
-                          )) : <span className="text-gray-600 italic">Sem mensagens</span>}
+                          )) : <div className="text-slate-600 italic">Sem histórico recente.</div>}
                         </div>
                       </div>
                     ))}
@@ -498,141 +546,144 @@ function AdminPanel() {
                 </div>
               )}
 
+              {/* Sistema & Dados (Danger Zone) */}
               {activeTab === 'danger' && (
-                <div className="max-w-2xl mx-auto mt-8">
-                  <div className="bg-red-900/20 border border-red-900 rounded-2xl p-8 text-center">
-                    <div className="w-20 h-20 bg-red-900/50 rounded-full flex items-center justify-center mx-auto mb-6">
-                      <div className="icon-triangle-alert text-4xl text-red-500"></div>
-                    </div>
-                    <h2 className="text-2xl font-bold text-red-500 mb-4">Apagar Servidor</h2>
-                    <p className="text-gray-300 mb-8 leading-relaxed">
-                      Esta ação irá remover todos os usuários, grupos e mensagens da nuvem do Firebase, exceto as configurações de administrador. Um backup completo será gerado e salvo no armazenamento local (localStorage) deste navegador para futura restauração.
-                    </p>
+                <div className="max-w-3xl mx-auto">
+                  <div className="bg-[#161b22] border border-red-900/50 rounded-3xl p-10 shadow-2xl relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-600 to-red-900"></div>
                     
-                    <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                      <button 
-                        onClick={handleWipeAndBackup}
-                        className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors"
-                      >
-                        <div className="icon-trash"></div>
-                        Fazer Backup Local e Apagar Tudo
-                      </button>
+                    <div className="flex items-start gap-6 mb-8">
+                      <div className="w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center shrink-0">
+                        <div className="icon-triangle-alert text-3xl text-red-500"></div>
+                      </div>
+                      <div>
+                        <h2 className="text-2xl font-bold text-slate-100 mb-2">Controle do Banco de Dados</h2>
+                        <p className="text-slate-400 leading-relaxed">
+                          Ações nesta área são críticas. Um Wipe Server apagará todos os dados de produção (usuários, mensagens, grupos), mantendo apenas as configurações do sistema para o administrador.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 flex flex-col">
+                        <h3 className="font-semibold text-slate-200 mb-1">Reset de Fábrica</h3>
+                        <p className="text-xs text-slate-500 mb-4 flex-1">Apaga o servidor e salva backup no navegador local.</p>
+                        <button onClick={handleWipeAndBackup} className="w-full py-2.5 bg-red-500/10 hover:bg-red-500 border border-red-500/50 hover:border-red-500 text-red-400 hover:text-white rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2">
+                          <div className="icon-trash"></div>
+                          Wipe Server
+                        </button>
+                      </div>
                       
-                      <button 
-                        onClick={handleRestore}
-                        className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-colors"
-                      >
-                        <div className="icon-rotate-ccw"></div>
-                        Restaurar Backup Local
-                      </button>
+                      <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 flex flex-col">
+                        <h3 className="font-semibold text-slate-200 mb-1">Restaurar Sistema</h3>
+                        <p className="text-xs text-slate-500 mb-4 flex-1">Recupera os dados do último backup local realizado.</p>
+                        <button onClick={handleRestore} className="w-full py-2.5 bg-indigo-500/10 hover:bg-indigo-500 border border-indigo-500/50 hover:border-indigo-500 text-indigo-400 hover:text-white rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2">
+                          <div className="icon-rotate-ccw"></div>
+                          Carregar Backup
+                        </button>
+                      </div>
                     </div>
-                    
-                    <div className="mt-8 p-4 bg-black/30 rounded-xl text-sm text-gray-400 text-left border border-gray-800">
-                      <p className="mb-2"><strong className="text-gray-300">Nota técnica:</strong> O limite seguro do armazenamento local dos navegadores (localStorage) costuma ser de 5MB a 10MB. Se o seu banco de dados ultrapassar este limite, a restauração pode não funcionar corretamente. Use com sabedoria.</p>
+
+                    <div className="mt-6 bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl flex items-start gap-3">
+                      <div className="icon-info text-amber-500 mt-0.5"></div>
+                      <p className="text-xs text-amber-500/90 leading-relaxed">
+                        <strong>Nota Técnica:</strong> O backup local depende do `localStorage` do navegador, que geralmente tem um limite de 5MB a 10MB. Se a base for muito grande, o backup pode falhar. Recomenda-se realizar exportação direta via painel do Firebase para bases maiores.
+                      </p>
                     </div>
                   </div>
                 </div>
               )}
-            </>
+
+            </div>
           )}
         </div>
       </div>
 
       {/* Modal de Inspeção */}
       {selectedUser && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-gray-800 border border-gray-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-            <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-              <h3 className="font-bold text-lg text-white">Inspeção Completa</h3>
-              <button onClick={() => setSelectedUser(null)} className="text-gray-400 hover:text-white">
-                <div className="icon-x text-xl"></div>
+        <div className="fixed inset-0 bg-[#0b0d14]/90 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[#161b22] border border-slate-800 shadow-2xl rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
+              <h3 className="font-semibold text-slate-200 flex items-center gap-2">
+                <div className="icon-file-code text-indigo-400"></div> Inspeção de Dados Brutos
+              </h3>
+              <button onClick={() => setSelectedUser(null)} className="text-slate-500 hover:text-slate-300 transition-colors p-1 bg-slate-800 rounded-lg">
+                <div className="icon-x"></div>
               </button>
             </div>
-            <div className="p-6 overflow-y-auto flex-1 text-sm text-gray-300 font-mono">
+            <div className="p-6 overflow-y-auto flex-1 font-mono text-xs text-emerald-400 bg-[#0b0d14] custom-scrollbar">
               <pre>{JSON.stringify(selectedUser, null, 2)}</pre>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal de Banimento */}
+      {/* Modal de Banimento Profissional */}
       {banModalUser && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-gray-800 border border-red-900/50 rounded-2xl w-full max-w-lg p-6 text-center max-h-[90vh] flex flex-col">
-            <div className="overflow-y-auto pr-2">
-              <div className="icon-shield-alert text-5xl text-red-500 mx-auto mb-4"></div>
-              <h3 className="text-xl font-bold text-white mb-2">Opções de Banimento</h3>
-              <p className="text-sm text-gray-400 mb-6">Escolha a duração da suspensão para {banModalUser.username || banModalUser.nome}</p>
-              
-              <div className="mb-6 bg-gray-900/50 p-4 rounded-xl text-left border border-gray-700">
-                <label className="flex items-center gap-3 cursor-pointer mb-3">
-                  <input 
-                    type="checkbox" 
-                    className="w-5 h-5 rounded border-gray-600 bg-gray-700 text-indigo-500 focus:ring-indigo-500"
-                    checked={includeReason}
-                    onChange={(e) => setIncludeReason(e.target.checked)}
-                  />
-                  <span className="text-white font-medium">Incluir motivo do banimento</span>
+        <div className="fixed inset-0 bg-[#0b0d14]/90 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[#161b22] border border-red-900/30 shadow-2xl rounded-2xl w-full max-w-md flex flex-col overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-800 bg-slate-900/50 text-center">
+              <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-3">
+                <div className="icon-gavel text-2xl text-red-500"></div>
+              </div>
+              <h3 className="font-bold text-slate-100 text-lg">Aplicar Punição</h3>
+              <p className="text-sm text-slate-400">Alvo: <strong className="text-slate-200">{banModalUser.username || banModalUser.nome}</strong></p>
+            </div>
+            
+            <div className="p-6 overflow-y-auto max-h-[60vh] custom-scrollbar">
+              <div className="mb-6">
+                <label className="flex items-center justify-between cursor-pointer p-3 bg-slate-900 border border-slate-800 rounded-xl hover:border-slate-700 transition-colors">
+                  <span className="text-sm font-medium text-slate-300">Incluir motivo (opcional)</span>
+                  <div className="relative inline-block w-10 h-5 align-middle select-none transition duration-200 ease-in">
+                    <input type="checkbox" className="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 border-slate-700 appearance-none cursor-pointer transition-transform duration-200" style={{ transform: includeReason ? 'translateX(1.25rem)' : 'translateX(0)', borderColor: includeReason ? '#6366f1' : '#334155' }} checked={includeReason} onChange={(e) => setIncludeReason(e.target.checked)} />
+                    <div className={`toggle-label block overflow-hidden h-5 rounded-full cursor-pointer transition-colors duration-200 ${includeReason ? 'bg-indigo-500' : 'bg-slate-700'}`}></div>
+                  </div>
                 </label>
                 
                 {includeReason && (
-                  <div className="mt-4 space-y-4">
-                    <div>
-                      <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">Templates Rápidos</p>
-                      <div className="flex flex-wrap gap-2">
-                        {banTemplates.map((template, idx) => (
-                          <button 
-                            key={idx}
-                            onClick={() => setBanReason(template)}
-                            className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs rounded-lg transition-colors"
-                          >
-                            {template}
-                          </button>
-                        ))}
-                      </div>
+                  <div className="mt-3 space-y-3 animate-in fade-in slide-in-from-top-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      {banTemplates.map((template, idx) => (
+                        <button key={idx} onClick={() => setBanReason(template)} className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-medium rounded border border-slate-700 transition-colors">
+                          {template}
+                        </button>
+                      ))}
                     </div>
-                    
-                    <div>
-                      <textarea
-                        value={banReason}
-                        onChange={(e) => setBanReason(e.target.value)}
-                        placeholder="Escreva o motivo detalhado..."
-                        className="w-full bg-gray-800 border border-gray-600 rounded-lg p-3 text-white text-sm focus:outline-none focus:border-indigo-500 min-h-[80px]"
-                      ></textarea>
-                    </div>
-
+                    <textarea value={banReason} onChange={(e) => setBanReason(e.target.value)} placeholder="Descreva o motivo detalhado..." className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-slate-200 text-sm focus:outline-none focus:border-indigo-500 transition-colors min-h-[80px] resize-none"></textarea>
                     <div className="flex gap-2">
-                      <input 
-                        type="text"
-                        value={newTemplateText}
-                        onChange={(e) => setNewTemplateText(e.target.value)}
-                        placeholder="Novo template..."
-                        className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
-                      />
-                      <button 
-                        onClick={handleAddTemplate}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
-                      >
-                        Salvar
-                      </button>
+                      <input type="text" value={newTemplateText} onChange={(e) => setNewTemplateText(e.target.value)} placeholder="Criar novo template rápido..." className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500" />
+                      <button onClick={handleAddTemplate} className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-slate-700">Salvar</button>
                     </div>
                   </div>
                 )}
               </div>
 
-              <div className="space-y-3">
-                <button onClick={() => handleBanUser(banModalUser, '15m')} className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-medium">15 Minutos</button>
-                <button onClick={() => handleBanUser(banModalUser, '1h')} className="w-full py-3 bg-yellow-600 hover:bg-yellow-700 text-white rounded-xl font-medium">1 Hora</button>
-                <button onClick={() => handleBanUser(banModalUser, '24h')} className="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-medium">24 Horas</button>
-                <button onClick={() => handleBanUser(banModalUser, '7d')} className="w-full py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-medium">7 Dias</button>
-                <button onClick={() => handleBanUser(banModalUser, 'permanent')} className="w-full py-3 bg-red-800 hover:bg-red-900 text-white border border-red-600 rounded-xl font-bold">Permanente</button>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Duração da Suspensão</p>
+              <div className="grid grid-cols-2 gap-2 mb-4">
+                <button onClick={() => handleBanUser(banModalUser, '15m')} className="py-2.5 bg-slate-800 hover:bg-amber-500/10 hover:text-amber-400 border border-slate-700 hover:border-amber-500/30 text-slate-300 rounded-xl text-sm font-medium transition-all">15 Minutos</button>
+                <button onClick={() => handleBanUser(banModalUser, '1h')} className="py-2.5 bg-slate-800 hover:bg-orange-500/10 hover:text-orange-400 border border-slate-700 hover:border-orange-500/30 text-slate-300 rounded-xl text-sm font-medium transition-all">1 Hora</button>
+                <button onClick={() => handleBanUser(banModalUser, '24h')} className="py-2.5 bg-slate-800 hover:bg-red-500/10 hover:text-red-400 border border-slate-700 hover:border-red-500/30 text-slate-300 rounded-xl text-sm font-medium transition-all">24 Horas</button>
+                <button onClick={() => handleBanUser(banModalUser, '7d')} className="py-2.5 bg-slate-800 hover:bg-red-600/10 hover:text-red-500 border border-slate-700 hover:border-red-600/30 text-slate-300 rounded-xl text-sm font-medium transition-all">7 Dias</button>
               </div>
-              
-              <button onClick={() => setBanModalUser(null)} className="mt-6 w-full py-2 text-gray-400 hover:text-white">Cancelar</button>
+              <button onClick={() => handleBanUser(banModalUser, 'permanent')} className="w-full py-3 bg-red-500/10 hover:bg-red-600 text-red-500 hover:text-white border border-red-500/30 rounded-xl text-sm font-bold transition-all shadow-lg hover:shadow-red-500/20 flex justify-center items-center gap-2">
+                <div className="icon-shield-ban"></div> Banimento Permanente
+              </button>
+            </div>
+            
+            <div className="px-6 py-4 border-t border-slate-800 bg-slate-900/50">
+              <button onClick={() => setBanModalUser(null)} className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-medium transition-colors">Cancelar</button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Estilos Globais Injetados para Scrollbar */}
+      <style dangerouslySetInnerHTML={{__html: `
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #475569; }
+      `}} />
     </div>
   );
 }
