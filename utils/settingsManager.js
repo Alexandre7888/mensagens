@@ -18,7 +18,8 @@ const defaultSettings = {
     imgQuality: 'alta',
     swipeReply: true,
     autoDarkMode: false,
-    reduceAnimations: false
+    reduceAnimations: false,
+    betaExperiences: false
 };
 
 const SettingsManager = {
