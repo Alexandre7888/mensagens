@@ -6,7 +6,6 @@ function ProfileSetup({ userData, onComplete }) {
   const [usernameStatus, setUsernameStatus] = React.useState("idle"); // idle, typing, checking, available, taken, invalid
   const [usernameMessage, setUsernameMessage] = React.useState("");
   const [birthdate, setBirthdate] = React.useState("");
-  const [location, setLocation] = React.useState(null);
   const [cropModalOpen, setCropModalOpen] = React.useState(false);
   const [imageToCrop, setImageToCrop] = React.useState(null);
   const [processingState, setProcessingState] = React.useState({ isProcessing: false, progress: 0 });
@@ -16,24 +15,6 @@ function ProfileSetup({ userData, onComplete }) {
   const checkTimeoutRef = React.useRef(null);
 
   const BAD_WORDS = ["palavrao", "admin", "root", "suporte", "puta", "merda", "caralho", "foda"]; // Exemplo simples
-
-  React.useEffect(() => {
-    // Request location
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setLocation({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude
-          });
-        },
-        (error) => {
-          console.error("Error getting location:", error);
-          // Optional: handle denied location
-        }
-      );
-    }
-  }, []);
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
@@ -253,7 +234,6 @@ function ProfileSetup({ userData, onComplete }) {
         updatedAt: new Date().toISOString(),
         followers: 0,
         following: 0,
-        location: location,
         suggestionVisibility: 'global' // 'global', 'nearby', 'hidden'
       };
 
@@ -275,14 +255,14 @@ function ProfileSetup({ userData, onComplete }) {
       <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full relative mt-10 sm:mt-0">
         <button 
           onClick={handleSave}
-          disabled={loading || !base64Image || usernameStatus !== "available" || !birthdate || !location}
+          disabled={loading || !base64Image || usernameStatus !== "available" || !birthdate}
           className={`absolute top-36 right-4 md:-right-6 w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-colors z-10 
-            ${loading || !base64Image || usernameStatus !== "available" || !birthdate || !location ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+            ${loading || !base64Image || usernameStatus !== "available" || !birthdate ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
         >
           {loading ? <div className="icon-loader animate-spin text-2xl"></div> : <div className="icon-arrow-right text-2xl"></div>}
         </button>
         <h2 className="text-2xl font-bold text-center text-gray-800 mb-6 mt-2">Configure seu Perfil</h2>
-        <p className="text-center text-gray-500 mb-8">Adicione uma foto de perfil e permita a localização para continuar</p>
+        <p className="text-center text-gray-500 mb-8">Adicione uma foto de perfil para continuar</p>
 
         <div className="flex flex-col items-center mb-8">
           <div className="relative w-32 h-32 mb-4 group">
@@ -354,12 +334,6 @@ function ProfileSetup({ userData, onComplete }) {
           </div>
         </div>
 
-        {!location && (
-          <div className="mb-6 p-3 bg-yellow-50 text-yellow-800 rounded-lg text-sm flex items-start gap-2">
-            <div className="icon-map-pin mt-0.5"></div>
-            <div>Por favor, permita o acesso à sua localização no navegador para ativar as sugestões de pessoas próximas.</div>
-          </div>
-        )}
       </div>
 
       {cropModalOpen && (
