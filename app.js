@@ -144,33 +144,7 @@ function App() {
         if (!firebaseData || !firebaseData.profilePicture) {
           setAppState('profile_setup');
         } else {
-          // Get Location only once instead of continuous watching to save RAM and Battery
-          if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-              async (position) => {
-                const newLocation = {
-                  lat: position.coords.latitude,
-                  lng: position.coords.longitude,
-                  timestamp: Date.now()
-                };
-                
-                setUserData(prev => {
-                  if (prev) return { ...prev, location: newLocation };
-                  return prev;
-                });
-
-                if (window.firebaseDB) {
-                  try {
-                    await window.firebaseDB.ref(`users/${combinedData.uid || combinedData.userKey}`).update({
-                      location: newLocation
-                    });
-                  } catch (e) {}
-                }
-              },
-              (error) => console.warn("Localização desativada:", error.message),
-              { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
-            );
-          }
+          // Solicitação automática de localização removida para não incomodar os usuários
 
           // Register OneSignal Listener if logged in
           if (window.OneSignalDeferred) {
