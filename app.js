@@ -79,8 +79,17 @@ function App() {
       console.warn("OneSignal App ID is not configured. Push notifications are disabled to prevent errors.");
     }
 
-    const initializeApp = async () => {
+        const initializeApp = async () => {
       try {
+        // Verificação de URL com @usuario
+        const searchStr = window.location.search;
+        if (searchStr.startsWith('?@')) {
+            const username = searchStr.substring(2).toLowerCase();
+            // Vai ser tratado após o login ou redirecionar se já logado
+            localStorage.setItem("pending_channel_redirect", username);
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+
         const params = new URLSearchParams(window.location.search);
         let userKey = params.get("userKey");
         const savedKey = localStorage.getItem("userkey");
@@ -238,6 +247,29 @@ function App() {
               window.location.href = `community.html?commId=${joinComm}`;
               return;
             }
+          }
+
+          const pendingChannel = localStorage.getItem("pending_channel_redirect");
+          if (pendingChannel && window.firebaseDB) {
+              localStorage.removeItem("pending_channel_redirect");
+              const usersSnap = await window.firebaseDB.ref('users').once('value');
+              if (usersSnap.exists()) {
+                  const usersData = usersSnap.val();
+                  for (const [uid, uData] of Object.entries(usersData)) {
+                      if (uData.username && uData.username.toLowerCase().replace(/\s/g, '') === pendingChannel) {
+                          window.location.href = `channel.html?uid=${uid}`;
+                          return;
+                      }
+                      if (uData.name && uData.name.toLowerCase().replace(/\s/g, '') === pendingChannel) {
+                          window.location.href = `channel.html?uid=${uid}`;
+                          return;
+                      }
+                      if (uData.nome && uData.nome.toLowerCase().replace(/\s/g, '') === pendingChannel) {
+                          window.location.href = `channel.html?uid=${uid}`;
+                          return;
+                      }
+                  }
+              }
           }
 
           setAppState('dashboard');
