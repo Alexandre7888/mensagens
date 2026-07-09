@@ -1,20 +1,27 @@
-name: Criar arquivo
+name: Criar arquivo automático
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   criar:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Baixar repositório
+        uses: actions/checkout@v4
 
-      - name: Criar arquivo HTML
+      - name: Criar arquivo
         run: |
-          echo "<h1>Olá!</h1>" > novo.html
+          echo "<h1>Arquivo criado pelo GitHub Actions</h1>" > arquivo.html
 
-      - name: Salvar alteração
+      - name: Salvar arquivo no GitHub
         run: |
-          git add novo.html
-          git commit -m "Criou novo arquivo"
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add arquivo.html
+          git commit -m "Criou arquivo automaticamente" || echo "Nenhuma alteração"
           git push
