@@ -42,7 +42,6 @@ function ChatInterface({ user, onLogout }) {
     const [editingMessage, setEditingMessage] = React.useState(null);
     const [featuredHours, setFeaturedHours] = React.useState(1);
     const [showFeaturedModal, setShowFeaturedModal] = React.useState(false);
-    const [showBetaAlert, setShowBetaAlert] = React.useState(false);
 
     const cleanupOldFiles = async (msgs, refPath) => {
         const now = Date.now();
@@ -1030,27 +1029,17 @@ function ChatInterface({ user, onLogout }) {
 
             <SettingsMenu isOpen={showSettingsMenu} onClose={() => setShowSettingsMenu(false)} />
 
-            {/* Barra Inferior (Bottom Bar) com botão Beta */}
+            {/* Barra Inferior (Bottom Bar) com botão Social */}
             <div className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 flex items-center justify-around py-2 pb-safe shadow-[0_-2px_10px_rgba(0,0,0,0.05)] z-30">
                 <button onClick={() => {
-                    const settings = window.SettingsManager ? window.SettingsManager.getSettings() : {};
-                    if (!settings.betaExperiences) {
-                        setShowBetaAlert(true);
-                    } else {
-                        window.location.href = 'social.html';
-                    }
+                    window.location.href = 'social.html';
                 }} className="flex flex-col items-center p-2 text-gray-500 hover:text-indigo-600 transition-colors">
                     <div className="icon-layout-grid text-2xl"></div>
                     <span className="text-[10px] font-bold mt-1">Social</span>
                 </button>
 
                 <button onClick={() => {
-                    const settings = window.SettingsManager ? window.SettingsManager.getSettings() : {};
-                    if (!settings.betaExperiences) {
-                        setShowBetaAlert(true);
-                    } else {
-                        window.location.href = 'social.html';
-                    }
+                    window.location.href = 'social.html';
                 }} className="flex flex-col items-center justify-center w-14 h-14 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full shadow-lg text-white transform -translate-y-4 hover:scale-105 transition-transform border-4 border-white">
                     <div className="icon-plus text-3xl"></div>
                 </button>
@@ -1061,35 +1050,14 @@ function ChatInterface({ user, onLogout }) {
                 </button>
             </div>
 
-            {/* Desktop Float Button for Beta */}
+            {/* Desktop Float Button for Social */}
             <div className="hidden md:flex fixed bottom-6 left-6 z-30 gap-4">
                  <button onClick={() => {
-                    const settings = window.SettingsManager ? window.SettingsManager.getSettings() : {};
-                    if (!settings.betaExperiences) {
-                        setShowBetaAlert(true);
-                    } else {
-                        window.location.href = 'social.html';
-                    }
+                    window.location.href = 'social.html';
                 }} className="flex items-center gap-2 bg-white text-indigo-600 px-4 py-3 rounded-full shadow-lg hover:bg-indigo-50 font-bold border border-indigo-100 transition-all">
-                    <div className="icon-sparkles"></div> Beta Social
+                    <div className="icon-sparkles"></div> Rede Social
                 </button>
             </div>
-
-            {showBetaAlert && (
-                <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full text-center">
-                        <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <div className="icon-flask-conical text-3xl"></div>
-                        </div>
-                        <h2 className="text-xl font-bold text-gray-800 mb-2">Recurso em Beta</h2>
-                        <p className="text-gray-600 text-sm mb-6">Você precisa habilitar "Permitir experiências Beta" nas Configurações Avançadas do menu principal para acessar esta área.</p>
-                        <div className="flex flex-col gap-3">
-                            <button onClick={() => { setShowBetaAlert(false); setShowSettingsMenu(true); }} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700">Abrir Configurações</button>
-                            <button onClick={() => setShowBetaAlert(false)} className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200">Cancelar</button>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {toastMessage && (
                 <div className={`fixed bottom-20 right-4 md:bottom-4 p-4 rounded-xl shadow-2xl text-white font-medium z-[60] flex items-center gap-2 transform transition-all animate-fade-in-up ${toastMessage.type === 'error' ? 'bg-red-500' : 'bg-gray-800'}`}>

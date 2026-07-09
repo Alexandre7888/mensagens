@@ -53,6 +53,8 @@ function ChatRoom({ user, chat }) {
         
         let hasYouTube = false;
         let ytUrl = null;
+        let hasSocialPost = false;
+        let socialPostId = null;
 
         const parts = processedText.split(urlRegex).map((part, i) => {
             if (part.match(urlRegex)) {
@@ -60,6 +62,25 @@ function ChatRoom({ user, chat }) {
                     hasYouTube = true;
                     ytUrl = part;
                 }
+                
+                if (part.includes('social.html?v=') && !hasSocialPost) {
+                    try {
+                        const urlObj = new URL(part);
+                        const v = urlObj.searchParams.get('v');
+                        if (v) {
+                            hasSocialPost = true;
+                            socialPostId = v;
+                        }
+                    } catch(e) {
+                        // fallback se URL for inválida
+                        const match = part.match(/[?&]v=([^&]+)/);
+                        if (match && match[1]) {
+                            hasSocialPost = true;
+                            socialPostId = match[1];
+                        }
+                    }
+                }
+
                 return (
                     <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="underline font-bold hover:opacity-80 transition-opacity drop-shadow-sm" style={{ color: 'inherit' }} onClick={(e) => e.stopPropagation()}>
                         {part}
@@ -77,12 +98,84 @@ function ChatRoom({ user, chat }) {
                         <window.UniversalVideoPlayer src={ytUrl} />
                     </div>
                 )}
+                {hasSocialPost && socialPostId && (
+                    <div onClick={(e) => e.stopPropagation()}>
+                        <SocialPostPreview postId={socialPostId} />
+                    </div>
+                )}
             </>
         );
     };
     const [pullY, setPullY] = React.useState(0);
     const [appSettings, setAppSettings] = React.useState(window.SettingsManager.getSettings());
     const [showScrollBottom, setShowScrollBottom] = React.useState(false);
+
+    const SocialPostPreview = ({ postId }) => {
+        const [post, setPost] = React.useState(null);
+        const [loading, setLoading] = React.useState(true);
+
+        React.useEffect(() => {
+            if (!db) return;
+            db.ref(`beta_posts/${postId}`).once('value').then(snap => {
+                setPost(snap.val());
+                setLoading(false);
+            }).catch(() => setLoading(false));
+        }, [postId]);
+
+        if (loading) return <div className="text-xs text-gray-500 mt-2">Carregando post...</div>;
+        if (!post) return <div className="text-xs text-red-500 mt-2">Post indisponível ou apagado</div>;
+
+        const mediaUrl = post.videoUrl || post.imageUrl;
+        const postUrl = `${window.location.origin}${window.location.pathname.replace('chat.html', '')}social.html?v=${postId}`;
+
+        return (
+            <div 
+                className="mt-2 mb-1 w-64 sm:w-72 rounded-xl overflow-hidden shadow-md border bg-black flex flex-col"
+                style={{ borderColor: 'rgba(0,0,0,0.1)' }}
+            >
+                {mediaUrl && (
+                    <div className="w-full bg-black flex justify-center items-center min-h-[150px] relative pointer-events-auto">
+                        {mediaUrl.match(/\.(jpeg|jpg|gif|png|webp)$/i) || mediaUrl.includes('-jpg') || mediaUrl.includes('-png') || mediaUrl.includes('-gif') ? (
+                            <img src={mediaUrl} className="w-full h-auto max-h-64 object-contain" alt="Post" />
+                        ) : (
+                            window.UniversalVideoPlayer ? <window.UniversalVideoPlayer src={mediaUrl} /> : <video src={mediaUrl} controls playsInline preload="metadata" className="w-full max-h-64 object-contain"></video>
+                        )}
+                    </div>
+                )}
+                <div className={`p-3 transition-colors ${ephemeralMode || document.documentElement.classList.contains('dark') ? 'bg-gray-800' : 'bg-white'}`}>
+                    <div className="cursor-pointer" onClick={() => window.open(postUrl, '_blank')}>
+                        <p className={`text-sm font-bold truncate ${ephemeralMode || document.documentElement.classList.contains('dark') ? 'text-white' : 'text-gray-900'}`}>@{post.authorName || 'Usuário'}</p>
+                        <p className={`text-xs truncate mt-0.5 ${ephemeralMode || document.documentElement.classList.contains('dark') ? 'text-gray-300' : 'text-gray-600'}`}>{post.description}</p>
+                    </div>
+                    <div className="flex items-center justify-between mt-3">
+                        <div className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer hover:opacity-80 text-indigo-500`} onClick={() => window.open(postUrl, '_blank')}>
+                            <div className="icon-external-link"></div>
+                            Ver original
+                        </div>
+                        <div 
+                            className="p-1.5 rounded-full cursor-pointer hover:bg-black/10 transition-colors text-indigo-500"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (navigator.share) {
+                                    navigator.share({
+                                        title: post.description || 'Post',
+                                        text: `Veja este post de @${post.authorName || 'Usuário'} no Phantora!`,
+                                        url: postUrl
+                                    }).catch(() => {});
+                                } else {
+                                    navigator.clipboard.writeText(postUrl);
+                                    showToastMessage("Link copiado para compartilhar!", "success");
+                                }
+                            }}
+                            title="Compartilhar"
+                        >
+                            <div className="icon-share-2 text-lg"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
 
     React.useEffect(() => {
         if (emojiPickerRef.current) {
@@ -100,6 +193,69 @@ function ChatRoom({ user, chat }) {
         return () => window.removeEventListener('settingsChanged', handleSettingsChange);
     }, []);
     const [isPulling, setIsPulling] = React.useState(false);
+
+    const SharedVideoMessage = ({ msg }) => {
+        const [postExists, setPostExists] = React.useState(true);
+        const [loading, setLoading] = React.useState(true);
+
+        React.useEffect(() => {
+            if (!db) return;
+            try {
+                const urlObj = new URL(msg.postUrl);
+                const postId = urlObj.searchParams.get('v');
+                if (postId) {
+                    db.ref(`beta_posts/${postId}`).once('value').then(snap => {
+                        if (!snap.exists()) {
+                            setPostExists(false);
+                        }
+                        setLoading(false);
+                    }).catch(() => setLoading(false));
+                } else {
+                    setLoading(false);
+                }
+            } catch (e) {
+                setLoading(false);
+            }
+        }, [msg.postUrl]);
+
+        if (loading) {
+            return <div className="text-gray-500 text-xs p-3">Carregando post...</div>;
+        }
+
+        if (!postExists) {
+            return (
+                <div className="mt-2 mb-1 w-64 sm:w-72 rounded-xl overflow-hidden shadow-md border bg-gray-100 flex flex-col p-6 items-center justify-center text-gray-500">
+                    <div className="icon-trash-2 text-3xl mb-2 opacity-70"></div>
+                    <span className="font-bold text-sm">Post apagado</span>
+                </div>
+            );
+        }
+
+        return (
+            <div 
+                className="mt-2 mb-1 w-64 sm:w-72 rounded-xl overflow-hidden shadow-md border bg-black flex flex-col"
+                style={{ borderColor: msg.senderId === user.id ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)' }}
+            >
+                {msg.mediaUrl && (
+                    <div className="w-full bg-black flex justify-center items-center min-h-[150px] relative pointer-events-auto">
+                        {msg.mediaUrl.match(/\.(jpeg|jpg|gif|png|webp)$/i) || msg.mediaUrl.includes('-jpg') || msg.mediaUrl.includes('-png') || msg.mediaUrl.includes('-gif') ? (
+                            <img src={msg.mediaUrl} className="w-full h-auto max-h-64 object-contain" alt="Post" />
+                        ) : (
+                            window.UniversalVideoPlayer ? <window.UniversalVideoPlayer src={msg.mediaUrl} /> : <video src={msg.mediaUrl} controls playsInline preload="metadata" className="w-full max-h-64 object-contain"></video>
+                        )}
+                    </div>
+                )}
+                <div className={`p-3 cursor-pointer transition-colors ${msg.senderId === user.id ? 'bg-indigo-600 hover:bg-indigo-700' : (ephemeralMode || document.documentElement.classList.contains('dark') ? 'bg-gray-800 hover:bg-gray-700' : 'bg-white hover:bg-gray-50')}`} onClick={() => window.open(msg.postUrl, '_blank')}>
+                    <p className={`text-sm font-bold truncate ${msg.senderId === user.id ? 'text-white' : (ephemeralMode || document.documentElement.classList.contains('dark') ? 'text-white' : 'text-gray-900')}`}>@{msg.postAuthor}</p>
+                    <p className={`text-xs truncate mt-0.5 ${msg.senderId === user.id ? 'text-indigo-100' : (ephemeralMode || document.documentElement.classList.contains('dark') ? 'text-gray-300' : 'text-gray-600')}`}>{msg.postTitle}</p>
+                    <div className={`mt-2 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${msg.senderId === user.id ? 'text-white' : 'text-indigo-500'}`}>
+                        <div className="icon-external-link"></div>
+                        Ver post original
+                    </div>
+                </div>
+            </div>
+        );
+    };
     const [pullProgress, setPullProgress] = React.useState(0);
     
     const mediaRecorder = React.useRef(null);
@@ -996,6 +1152,54 @@ function ChatRoom({ user, chat }) {
                                 {msg.type === 'video' && msg.fileData && (
                                     <div className="max-w-full overflow-hidden rounded-lg mt-2 mb-1 bg-black flex justify-center items-center">
                                         {window.UniversalVideoPlayer ? <window.UniversalVideoPlayer src={msg.fileData} /> : <window.CustomVideoPlayer src={msg.fileData} />}
+                                    </div>
+                                )}
+                                {msg.type === 'shared_video' && (
+                                    <div 
+                                        className="mt-2 mb-1 w-64 sm:w-72 rounded-xl overflow-hidden shadow-md border bg-black flex flex-col"
+                                        style={{ borderColor: msg.senderId === user.id ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)' }}
+                                    >
+                                        {msg.mediaUrl && (
+                                            <div className="w-full bg-black flex justify-center items-center min-h-[150px] relative pointer-events-auto">
+                                                {msg.mediaUrl.match(/\.(jpeg|jpg|gif|png|webp)$/i) || msg.mediaUrl.includes('-jpg') || msg.mediaUrl.includes('-png') || msg.mediaUrl.includes('-gif') ? (
+                                                    <img src={msg.mediaUrl} className="w-full h-auto max-h-64 object-contain" alt="Post" />
+                                                ) : (
+                                                    window.UniversalVideoPlayer ? <window.UniversalVideoPlayer src={msg.mediaUrl} /> : <video src={msg.mediaUrl} controls playsInline preload="metadata" className="w-full max-h-64 object-contain"></video>
+                                                )}
+                                            </div>
+                                        )}
+                                        <div className={`p-3 transition-colors ${msg.senderId === user.id ? 'bg-indigo-600' : (ephemeralMode || document.documentElement.classList.contains('dark') ? 'bg-gray-800' : 'bg-white')}`}>
+                                            <div className="cursor-pointer" onClick={() => window.open(msg.postUrl, '_blank')}>
+                                                <p className={`text-sm font-bold truncate ${msg.senderId === user.id ? 'text-white' : (ephemeralMode || document.documentElement.classList.contains('dark') ? 'text-white' : 'text-gray-900')}`}>@{msg.postAuthor}</p>
+                                                <p className={`text-xs truncate mt-0.5 ${msg.senderId === user.id ? 'text-indigo-100' : (ephemeralMode || document.documentElement.classList.contains('dark') ? 'text-gray-300' : 'text-gray-600')}`}>{msg.postTitle}</p>
+                                            </div>
+                                            <div className="flex items-center justify-between mt-3">
+                                                <div className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer hover:opacity-80 ${msg.senderId === user.id ? 'text-white' : 'text-indigo-500'}`} onClick={() => window.open(msg.postUrl, '_blank')}>
+                                                    <div className="icon-external-link"></div>
+                                                    Ver original
+                                                </div>
+                                                <div 
+                                                    className={`p-1.5 rounded-full cursor-pointer hover:bg-black/10 transition-colors ${msg.senderId === user.id ? 'text-white' : 'text-indigo-500'}`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        // Fallback nativo de compartilhamento
+                                                        if (navigator.share) {
+                                                            navigator.share({
+                                                                title: msg.postTitle,
+                                                                text: `Veja este post de @${msg.postAuthor} no Phantora!`,
+                                                                url: msg.postUrl
+                                                            }).catch(() => {});
+                                                        } else {
+                                                            navigator.clipboard.writeText(msg.postUrl);
+                                                            showToastMessage("Link copiado para compartilhar!", "success");
+                                                        }
+                                                    }}
+                                                    title="Compartilhar"
+                                                >
+                                                    <div className="icon-share-2 text-lg"></div>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
                                 {msg.type === 'audio' && msg.fileData && <window.CustomAudioPlayer src={msg.fileData} isOwn={msg.senderId === user.id} />}

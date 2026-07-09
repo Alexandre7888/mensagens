@@ -10,26 +10,143 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
     const animationFrameRef = React.useRef(null);
     const faceLandmarkerRef = React.useRef(null);
     const lastVideoTimeRef = React.useRef(-1);
+    const audioPlayerRef = React.useRef(null);
+    const filterImageRef = React.useRef(new Image());
 
     const [hasPermission, setHasPermission] = React.useState(null);
-    const [facingMode, setFacingMode] = React.useState('user'); // default to user for AR
+    const [audios, setAudios] = React.useState([]);
+    const [showAudioMenu, setShowAudioMenu] = React.useState(false);
+    const [selectedAudio, setSelectedAudio] = React.useState(null);
+    const [facingMode, setFacingMode] = React.useState('user');
     const [isRecording, setIsRecording] = React.useState(false);
     const [recordingTime, setRecordingTime] = React.useState(0);
-    const [previewMedia, setPreviewMedia] = React.useState(null); // { type: 'image' | 'video', url: string, blob: Blob }
+    const [previewMedia, setPreviewMedia] = React.useState(null);
     const [showFlash, setShowFlash] = React.useState(false);
     const [gridVisible, setGridVisible] = React.useState(false);
     const [zoom, setZoom] = React.useState(1);
     const [capabilities, setCapabilities] = React.useState(null);
     const [arEnabled, setArEnabled] = React.useState(false);
+    const [showFilterMenu, setShowFilterMenu] = React.useState(false);
+    const [selectedFilter, setSelectedFilter] = React.useState('none');
+    const [originalVolume, setOriginalVolume] = React.useState(0);
+    const [musicVolume, setMusicVolume] = React.useState(1);
+    
+    // Audio Context refs for mixing
+    const audioContextRef = React.useRef(null);
+    const micGainRef = React.useRef(null);
+    const musicGainRef = React.useRef(null);
+    const destRef = React.useRef(null);
+    const mixedStreamRef = React.useRef(null);
+    const sourceNodeRef = React.useRef(null);
+    const micSourceRef = React.useRef(null);
     const [filters, setFilters] = React.useState([
         { id: 'none', name: 'Nenhum', type: 'none', url: '' },
         { id: 'glasses_thug', name: 'Óculos Thug', type: 'eyes', url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Sunglasses_icon.svg/512px-Sunglasses_icon.svg.png' },
         { id: 'mask_anon', name: 'Máscara', type: 'face', url: 'https://cdn-icons-png.flaticon.com/512/2821/2821035.png' },
         { id: 'hat_crown', name: 'Coroa', type: 'head', url: 'https://cdn-icons-png.flaticon.com/512/1004/1004733.png' }
     ]);
-    const [selectedFilter, setSelectedFilter] = React.useState('none');
-    const filterImageRef = React.useRef(new Image());
-    const [showFilterMenu, setShowFilterMenu] = React.useState(false);
+
+    React.useEffect(() => {
+        if (typeof firebase !== 'undefined') {
+            const db = firebase.database();
+            const musicRef = db.ref('studio_musics');
+            
+            const handleData = (snap) => {
+                if (snap.exists()) {
+                    const data = snap.val();
+                    const audioList = Object.keys(data).map(k => {
+                        const item = data[k];
+                        return {
+                            id: k,
+                            name: item.title || 'Música sem título',
+                            artistName: item.artistName || item.description || 'Desconhecido',
+                            coverUrl: item.bannerUrl || '',
+                            mediaUrl: item.audioUrl || ''
+                        };
+                    });
+                    // Inverte a lista para mostrar as mais recentes primeiro
+                    setAudios(audioList.reverse());
+                } else {
+                    setAudios([]);
+                }
+            };
+
+            musicRef.on('value', handleData);
+
+            return () => {
+                musicRef.off('value', handleData);
+            };
+        }
+    }, []);
+
+    const setupAudioMixer = () => {
+        if (!streamRef.current || !audioPlayerRef.current) return;
+        
+        try {
+            if (!audioContextRef.current) {
+                audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            const ctx = audioContextRef.current;
+            
+            if (ctx.state === 'suspended') {
+                ctx.resume();
+            }
+
+            if (!destRef.current) {
+                destRef.current = ctx.createMediaStreamDestination();
+                micGainRef.current = ctx.createGain();
+                musicGainRef.current = ctx.createGain();
+                
+                micGainRef.current.connect(destRef.current);
+                musicGainRef.current.connect(destRef.current);
+                
+                // Route destination back to speakers so user can hear the music
+                // Actually, if we connect musicGain to dest, it goes to recorder.
+                // We also need music to play through speakers. We can just leave the audio element playing,
+                // but createMediaElementSource mutes the audio element by default.
+                // So we must route musicGain to ctx.destination as well.
+                musicGainRef.current.connect(ctx.destination);
+            }
+
+            // Connect Mic
+            const audioTracks = streamRef.current.getAudioTracks();
+            if (audioTracks.length > 0 && !micSourceRef.current) {
+                micSourceRef.current = ctx.createMediaStreamSource(new MediaStream([audioTracks[0]]));
+                micSourceRef.current.connect(micGainRef.current);
+            }
+
+            // Connect Music
+            if (!sourceNodeRef.current) {
+                sourceNodeRef.current = ctx.createMediaElementSource(audioPlayerRef.current);
+                sourceNodeRef.current.connect(musicGainRef.current);
+            }
+
+            micGainRef.current.gain.value = originalVolume;
+            musicGainRef.current.gain.value = musicVolume;
+
+            mixedStreamRef.current = destRef.current.stream;
+
+        } catch (e) {
+            console.error("Error setting up audio mixer:", e);
+        }
+    };
+
+    React.useEffect(() => {
+        if (micGainRef.current) micGainRef.current.gain.value = originalVolume;
+        if (musicGainRef.current) musicGainRef.current.gain.value = musicVolume;
+    }, [originalVolume, musicVolume]);
+
+    React.useEffect(() => {
+        if (audioPlayerRef.current) {
+            if (isRecording && selectedAudio) {
+                setupAudioMixer();
+                audioPlayerRef.current.play().catch(console.error);
+            } else {
+                audioPlayerRef.current.pause();
+                audioPlayerRef.current.currentTime = 0;
+            }
+        }
+    }, [isRecording, selectedAudio]);
 
     // Initialize MediaPipe FaceLandmarker
     React.useEffect(() => {
@@ -82,27 +199,11 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
     }, [selectedFilter, filters]);
 
     const playShutterSound = () => {
-        try {
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            const ctx = new AudioContext();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.type = 'square';
-            osc.frequency.setValueAtTime(800, ctx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.1);
-            gain.gain.setValueAtTime(0.5, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
-            osc.start();
-            osc.stop(ctx.currentTime + 0.1);
-        } catch (e) {
-            console.error("Audio error", e);
-        }
+        // Removido a pedido do usuário
     };
 
     const vibrate = (duration = 50) => {
-        if ('vibrate' in navigator) navigator.vibrate(duration);
+        // Removido a pedido do usuário
     };
 
     const startCamera = async () => {
@@ -126,11 +227,18 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
             
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
-                // Wait for video to be ready before playing to avoid DOM exceptions
-                videoRef.current.onloadedmetadata = () => {
-                    videoRef.current.play().catch(e => console.error("Error playing video:", e));
-                    setHasPermission(true);
-                };
+                setHasPermission(true);
+                
+                // Try to play immediately, or wait for metadata
+                const playPromise = videoRef.current.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch(e => {
+                        console.error("Error playing video immediately:", e);
+                        videoRef.current.onloadedmetadata = () => {
+                            videoRef.current.play().catch(err => console.error("Error after loadedmetadata:", err));
+                        };
+                    });
+                }
             }
 
             // Get capabilities for zoom etc
@@ -297,12 +405,18 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
             ctx.restore();
         }
         
-        canvas.toBlob((blob) => {
-            if(blob) {
-                const url = URL.createObjectURL(blob);
-                setPreviewMedia({ type: 'image', url, blob });
-            }
-        }, 'image/jpeg', 0.8);
+        try {
+            canvas.toBlob((blob) => {
+                if(blob) {
+                    const url = URL.createObjectURL(blob);
+                    setPreviewMedia({ type: 'image', url, blob });
+                } else {
+                    console.error("Failed to create blob from canvas");
+                }
+            }, 'image/jpeg', 0.8);
+        } catch (e) {
+            console.error("Error converting canvas to blob:", e);
+        }
     };
 
     const startRecording = () => {
@@ -321,12 +435,22 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
             mimeType = 'video/mp4';
         }
         
-        const options = mimeType ? { mimeType, videoBitsPerSecond: 250000, audioBitsPerSecond: 16000 } : { videoBitsPerSecond: 250000, audioBitsPerSecond: 16000 };
+        let streamToRecord = streamRef.current;
+        
+        if (selectedAudio && mixedStreamRef.current) {
+            const videoTracks = streamRef.current.getVideoTracks();
+            const mixedAudioTracks = mixedStreamRef.current.getAudioTracks();
+            if (videoTracks.length > 0 && mixedAudioTracks.length > 0) {
+                streamToRecord = new MediaStream([videoTracks[0], mixedAudioTracks[0]]);
+            }
+        }
+
+        const options = mimeType ? { mimeType, videoBitsPerSecond: 2500000, audioBitsPerSecond: 128000 } : { videoBitsPerSecond: 2500000, audioBitsPerSecond: 128000 };
         
         try {
-            mediaRecorderRef.current = new MediaRecorder(streamRef.current, options);
+            mediaRecorderRef.current = new MediaRecorder(streamToRecord, options);
         } catch (e) {
-            mediaRecorderRef.current = new MediaRecorder(streamRef.current, { videoBitsPerSecond: 250000, audioBitsPerSecond: 16000 });
+            mediaRecorderRef.current = new MediaRecorder(streamToRecord, { videoBitsPerSecond: 2500000, audioBitsPerSecond: 128000 });
         }
 
         mediaRecorderRef.current.ondataavailable = (e) => {
@@ -336,9 +460,11 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
         mediaRecorderRef.current.onstop = () => {
             clearInterval(recordingDurationRef.current);
             const actualMimeType = mediaRecorderRef.current.mimeType || mimeType || 'video/mp4';
-            const blob = new Blob(recordedChunksRef.current, { type: actualMimeType });
+            // Limpa o MIME type para remover codecs e espaços (ex: "video/webm; codecs=vp9" -> "video/webm")
+            const cleanMimeType = actualMimeType.split(';')[0].trim();
+            const blob = new Blob(recordedChunksRef.current, { type: cleanMimeType });
             const url = URL.createObjectURL(blob);
-            setPreviewMedia({ type: 'video', url, blob, mimeType: actualMimeType });
+            setPreviewMedia({ type: 'video', url, blob, mimeType: cleanMimeType });
             setIsRecording(false);
             setRecordingTime(0);
         };
@@ -364,18 +490,43 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
         }
     };
 
+    const pressTimeRef = React.useRef(0);
+
     const handleButtonPress = () => {
         if (photoOnly) return;
+        
+        pressTimeRef.current = Date.now();
+
+        if (selectedAudio) {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+            return;
+        }
+
         holdTimerRef.current = setTimeout(() => {
             startRecording();
-        }, 500); // 500ms hold to record video
+        }, 400); // 400ms hold to record video
     };
 
     const handleButtonRelease = () => {
-        if (!photoOnly && holdTimerRef.current) {
+        if (photoOnly) return;
+        
+        if (selectedAudio) {
+            // Se segurou por mais de 500ms e soltou, para a gravação
+            if (isRecording && Date.now() - pressTimeRef.current > 500) {
+                stopRecording();
+            }
+            return;
+        }
+
+        if (holdTimerRef.current) {
             clearTimeout(holdTimerRef.current);
         }
-        if (!photoOnly && isRecording) {
+        
+        if (isRecording) {
             stopRecording();
         } else {
             // Tap
@@ -385,12 +536,19 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
 
     const handleSend = () => {
         if (previewMedia) {
-            // Convert to File object
-            const isMp4 = previewMedia.mimeType && previewMedia.mimeType.includes('mp4');
-            const ext = previewMedia.type === 'image' ? 'jpg' : (isMp4 ? 'mp4' : 'webm');
-            const type = previewMedia.type === 'image' ? 'image/jpeg' : (previewMedia.mimeType || 'video/mp4');
-            const file = new File([previewMedia.blob], `capture_${Date.now()}.${ext}`, { type });
-            onCapture(file, previewMedia.type);
+            try {
+                // Convert to File object
+                const isMp4 = previewMedia.mimeType && previewMedia.mimeType.includes('mp4');
+                const ext = previewMedia.type === 'image' ? 'jpg' : (isMp4 ? 'mp4' : 'webm');
+                const type = previewMedia.type === 'image' ? 'image/jpeg' : (previewMedia.mimeType || 'video/mp4');
+                const file = new File([previewMedia.blob], `capture_${Date.now()}.${ext}`, { type });
+                onCapture(file, previewMedia.type, selectedAudio);
+            } catch (e) {
+                console.error("Error creating File object:", e);
+                // Fallback Se o browser não suportar construtor de File adequadamente
+                previewMedia.blob.name = `capture_${Date.now()}.${previewMedia.type === 'image' ? 'jpg' : 'mp4'}`;
+                onCapture(previewMedia.blob, previewMedia.type, selectedAudio);
+            }
         }
     };
 
@@ -423,6 +581,12 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
                 <button onClick={onClose} className="p-2 text-white">
                     <div className="icon-x text-2xl"></div>
                 </button>
+                
+                <button onClick={() => setShowAudioMenu(true)} className="flex items-center gap-2 bg-black/40 backdrop-blur-sm px-3 py-1.5 rounded-full text-white hover:bg-black/60 transition">
+                    <div className="icon-music text-sm"></div>
+                    <span className="text-xs font-bold truncate max-w-[120px]">{selectedAudio ? selectedAudio.name : 'Adicionar Som'}</span>
+                </button>
+
                 <div className="flex gap-4">
                     <button onClick={() => setGridVisible(!gridVisible)} className={`p-2 ${gridVisible ? 'text-yellow-400' : 'text-white'}`}>
                         <div className="icon-grid-3x3 text-2xl"></div>
@@ -511,7 +675,74 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
                     </div>
                 )}
 
-                {/* Zoom Slider */}
+                {/* Audio Menu */}
+            {showAudioMenu && (
+                <div className="absolute inset-0 bg-black/90 z-50 flex flex-col text-white">
+                    <div className="p-4 border-b border-gray-800 flex justify-between items-center">
+                        <h2 className="font-bold text-lg">Músicas Salvas</h2>
+                        <button onClick={() => setShowAudioMenu(false)}><div className="icon-x text-2xl"></div></button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                        <div 
+                            className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer ${!selectedAudio ? 'bg-indigo-600/30 border border-indigo-500' : 'bg-gray-800 hover:bg-gray-700'}`}
+                            onClick={() => { setSelectedAudio(null); setShowAudioMenu(false); }}
+                        >
+                            <div className="w-12 h-12 bg-gray-700 rounded-lg flex items-center justify-center">
+                                <div className="icon-x text-xl text-gray-400"></div>
+                            </div>
+                            <div className="flex-1">
+                                <h3 className="font-bold">Nenhum som</h3>
+                                <p className="text-xs text-gray-400">Usar áudio original</p>
+                            </div>
+                        </div>
+
+                        {audios.map(audio => (
+                            <div 
+                                key={audio.id} 
+                                className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer ${selectedAudio?.id === audio.id ? 'bg-indigo-600/30 border border-indigo-500' : 'bg-gray-800 hover:bg-gray-700'}`}
+                                onClick={() => { setSelectedAudio(audio); setShowAudioMenu(false); }}
+                            >
+                                <img src={audio.coverUrl || 'https://via.placeholder.com/150'} className="w-12 h-12 rounded-lg object-cover" />
+                                <div className="flex-1">
+                                    <h3 className="font-bold text-sm line-clamp-1">{audio.name}</h3>
+                                    <p className="text-xs text-gray-400">{audio.artistName}</p>
+                                </div>
+                                {selectedAudio?.id === audio.id && <div className="icon-check text-indigo-400"></div>}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {selectedAudio && (
+                <audio ref={audioPlayerRef} src={selectedAudio.mediaUrl} preload="auto" loop crossOrigin="anonymous" />
+            )}
+            
+            {/* Volume Controls Overlay */}
+            {selectedAudio && !previewMedia && !isRecording && (
+                <div className="absolute right-4 top-24 z-20 flex flex-col gap-6 items-center bg-black/50 p-3 rounded-full backdrop-blur-sm">
+                    <div className="flex flex-col items-center gap-1">
+                        <div className="icon-mic text-white text-xs mb-1"></div>
+                        <input 
+                            type="range" min="0" max="1" step="0.1" 
+                            value={originalVolume} onChange={(e) => setOriginalVolume(parseFloat(e.target.value))}
+                            className="h-20 w-1 appearance-none bg-white/30 rounded-full outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full"
+                            style={{ writingMode: 'bt-lr', WebkitAppearance: 'slider-vertical' }}
+                        />
+                    </div>
+                    <div className="flex flex-col items-center gap-1">
+                        <div className="icon-music text-indigo-400 text-xs mb-1"></div>
+                        <input 
+                            type="range" min="0" max="1" step="0.1" 
+                            value={musicVolume} onChange={(e) => setMusicVolume(parseFloat(e.target.value))}
+                            className="h-20 w-1 appearance-none bg-indigo-500/30 rounded-full outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-indigo-400 [&::-webkit-slider-thumb]:rounded-full"
+                            style={{ writingMode: 'bt-lr', WebkitAppearance: 'slider-vertical' }}
+                        />
+                    </div>
+                </div>
+            )}
+
+            {/* Zoom Slider */}
                 {capabilities?.zoom && (
                     <div className="absolute left-4 top-1/2 -translate-y-1/2 h-48 flex items-center z-20">
                         <input 

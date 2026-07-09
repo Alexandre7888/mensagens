@@ -5,6 +5,7 @@ function AdminPanel() {
   const [groups, setGroups] = React.useState([]);
   const [appeals, setAppeals] = React.useState([]);
   const [moderations, setModerations] = React.useState([]);
+  const [activeLives, setActiveLives] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [selectedUser, setSelectedUser] = React.useState(null);
   const [banModalUser, setBanModalUser] = React.useState(null);
@@ -24,6 +25,7 @@ function AdminPanel() {
       const bannedSnap = await window.firebaseDB.ref('banned_users').once('value');
       const groupsSnap = await window.firebaseDB.ref('groups').once('value');
       const modSnap = await window.firebaseDB.ref('moderacoes').once('value');
+      const livesSnap = await window.firebaseDB.ref('lives').once('value');
       
       const usersList = [];
       usersSnap.forEach(child => {
@@ -65,11 +67,21 @@ function AdminPanel() {
         setBanTemplates(defaultTemplates);
       }
 
+      const livesList = [];
+      if (livesSnap.exists()) {
+        livesSnap.forEach(child => {
+          if(child.val().status === 'active') {
+              livesList.push({ id: child.key, ...child.val() });
+          }
+        });
+      }
+
       setUsers(usersList);
       setBannedUsers(bannedList);
       setGroups(groupsList);
       setAppeals(appealsList);
       setModerations(modList);
+      setActiveLives(livesList);
     }
     setLoading(false);
   };
@@ -240,6 +252,7 @@ function AdminPanel() {
     { id: 'users', label: 'Usuários Ativos', icon: 'users', count: users.length },
     { id: 'banned', label: 'Usuários Banidos', icon: 'user-x', count: bannedUsers.length },
     { id: 'moderations', label: 'Moderações', icon: 'shield-alert', count: moderations.length },
+    { id: 'lives', label: 'Lives Ativas', icon: 'radio', count: activeLives.length },
     { id: 'groups', label: 'Monitoramento', icon: 'activity' },
     { id: 'danger', label: 'Sistema & Dados', icon: 'database' }
   ];
@@ -515,6 +528,75 @@ function AdminPanel() {
                       </div>
                     );
                   })}
+                </div>
+              )}
+
+              {/* Lives Ativas */}
+              {activeTab === 'lives' && (
+                <div className="bg-[#161b22] border border-slate-800/60 rounded-2xl shadow-xl overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-900/50 border-b border-slate-800/60">
+                          <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Host</th>
+                          <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Título da Live</th>
+                          <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Visualizadores</th>
+                          <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider text-right">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {activeLives.map(live => (
+                          <tr key={live.id} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div>
+                                  <p className="font-medium text-slate-200">{live.hostName || 'Sem Nome'}</p>
+                                  <p className="text-xs text-slate-500">ID: {live.hostId.substring(0, 15)}...</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <p className="text-sm text-slate-300">{live.title}</p>
+                              <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded uppercase">{live.category || 'Geral'}</span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="text-emerald-400 font-medium">{live.viewers ? Object.keys(live.viewers).length : 0} online</span>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <div className="flex justify-end gap-2">
+                                <button 
+                                  onClick={async () => {
+                                    if(window.confirm('Tem certeza que deseja derrubar essa live?')) {
+                                      await window.firebaseDB.ref(`lives/${live.id}`).remove();
+                                      loadData();
+                                    }
+                                  }} 
+                                  className="p-2 text-slate-400 hover:text-orange-400 hover:bg-orange-500/10 rounded-lg transition-colors" title="Derrubar Live"
+                                >
+                                  <div className="icon-power"></div>
+                                </button>
+                                <button 
+                                  onClick={() => {
+                                    const usr = users.find(u => u.id === live.hostId);
+                                    if(usr) openBanModal(usr); else alert('Usuário host não encontrado.');
+                                  }} 
+                                  className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Banir Host"
+                                >
+                                  <div className="icon-gavel"></div>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {activeLives.length === 0 && (
+                    <div className="p-12 text-center text-slate-500 flex flex-col items-center">
+                        <div className="icon-radio text-4xl mb-3 opacity-30"></div>
+                        Nenhuma live online no momento.
+                    </div>
+                  )}
                 </div>
               )}
 

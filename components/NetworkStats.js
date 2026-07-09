@@ -11,7 +11,7 @@ function NetworkStats({ user, onClose }) {
             setLoading(true);
             try {
                 // Fetch followers/following relationships
-                const followsSnap = await db.ref('beta_follows').once('value');
+                const followsSnap = await db.ref('follows').once('value');
                 const follows = followsSnap.val() || {};
                 
                 const followersList = [];
@@ -32,7 +32,7 @@ function NetworkStats({ user, onClose }) {
                 });
 
                 // Fetch Posts for likes
-                const postsSnap = await db.ref('beta_posts').once('value');
+                const postsSnap = await db.ref('posts').once('value');
                 const posts = postsSnap.val() || {};
                 const likesList = [];
                 
@@ -93,7 +93,7 @@ function NetworkStats({ user, onClose }) {
                             <h4 className="font-bold text-gray-800">{u.hideProfile ? 'Usuário Oculto' : u.name}</h4>
                             <p className="text-xs text-gray-500">ID: {u.id.substring(0,8)}...</p>
                         </div>
-                        <a href={`chat.html?uid=${u.id}`} className="p-2 bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100">
+                        <a href={`chat.html?chatId=${u.id}`} className="p-2 bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100">
                             <div className="icon-message-circle"></div>
                         </a>
                     </div>
