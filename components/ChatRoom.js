@@ -349,6 +349,9 @@ function ChatRoom({ user, chat }) {
                 const members = snap.val() || {};
                 for (const uid of Object.keys(members)) {
                     db.ref(`users/${uid}/chats/${chat.id}`).update(chatUpdate);
+                    if (uid !== user.id && window.api && window.api.sendNotification) {
+                        window.api.sendNotification(uid, chat.name, `Nova mensagem de ${user.name}`);
+                    }
                 }
             });
         } else {
@@ -360,6 +363,9 @@ function ChatRoom({ user, chat }) {
                     type: 'direct',
                     targetId: user.id
                 });
+                if (window.api && window.api.sendNotification) {
+                    window.api.sendNotification(targetId, user.name, "Nova mensagem recebida");
+                }
             }
         }
     };
@@ -390,6 +396,19 @@ function ChatRoom({ user, chat }) {
                     localStorage.setItem(`local_history_${chat.id}`, JSON.stringify(merged.slice(-2000)));
                     setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
                     return merged;
+                });
+                if (window.api && window.api.sendNotification) {
+                    const targetId = chat.targetId || (chat.id.replace(user.id, '').replace('_', ''));
+                    window.api.sendNotification(targetId, user.name, `Enviou um ${type === 'image' ? 'arquivo de imagem' : type}`);
+                }
+            } else {
+                db.ref(`groups/${chat.id}/members`).once('value').then(snap => {
+                    const members = snap.val() || {};
+                    for (const uid of Object.keys(members)) {
+                        if (uid !== user.id && window.api && window.api.sendNotification) {
+                            window.api.sendNotification(uid, chat.name, `${user.name} enviou mídia`);
+                        }
+                    }
                 });
             }
         } catch (e) {
@@ -431,6 +450,19 @@ function ChatRoom({ user, chat }) {
                                 localStorage.setItem(`local_history_${chat.id}`, JSON.stringify(merged.slice(-2000)));
                                 setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
                                 return merged;
+                            });
+                            if (window.api && window.api.sendNotification) {
+                                const targetId = chat.targetId || (chat.id.replace(user.id, '').replace('_', ''));
+                                window.api.sendNotification(targetId, user.name, "Enviou uma mensagem de áudio");
+                            }
+                        } else {
+                            db.ref(`groups/${chat.id}/members`).once('value').then(snap => {
+                                const members = snap.val() || {};
+                                for (const uid of Object.keys(members)) {
+                                    if (uid !== user.id && window.api && window.api.sendNotification) {
+                                        window.api.sendNotification(uid, chat.name, `${user.name} enviou áudio`);
+                                    }
+                                }
                             });
                         }
                     };
