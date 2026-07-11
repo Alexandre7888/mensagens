@@ -1,5 +1,5 @@
 function StudioLayout() {
-    const [activeTab, setActiveTab] = React.useState('music');
+    const [activeTab, setActiveTab] = React.useState('dashboard');
     const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
 
     const navItems = [
@@ -10,17 +10,14 @@ function StudioLayout() {
     ];
 
     const renderContent = () => {
+        // Obter usuário logado atual se possível
+        const currentUser = window.currentUser || { uid: localStorage.getItem('userToken') || 'anonymous', displayName: localStorage.getItem('userName') || 'Usuário' };
+
         switch (activeTab) {
+            case 'dashboard':
+                return <StudioDashboard user={currentUser} />;
             case 'music':
                 return <StudioMusicLibrary />;
-            case 'dashboard':
-                return (
-                    <div className="p-8 flex flex-col items-center justify-center h-full text-gray-400">
-                        <div className="icon-layout-dashboard text-6xl mb-4 opacity-50"></div>
-                        <h2 className="text-2xl font-bold text-white mb-2">Visão Geral</h2>
-                        <p>Selecione uma categoria no menu lateral para gerenciar seus conteúdos.</p>
-                    </div>
-                );
             default:
                 return (
                     <div className="p-8 flex flex-col items-center justify-center h-full text-gray-400">

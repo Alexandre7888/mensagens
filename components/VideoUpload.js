@@ -17,6 +17,7 @@ function VideoUpload({ user, onClose, onUploadComplete }) {
 
     // Audio & Volume states
     const [audios, setAudios] = React.useState([]);
+    const [isLoadingAudios, setIsLoadingAudios] = React.useState(true);
     const [showCustomCamera, setShowCustomCamera] = React.useState(false);
     const [showAudioMenu, setShowAudioMenu] = React.useState(false);
     const [selectedAudio, setSelectedAudio] = React.useState(null);
@@ -37,12 +38,27 @@ function VideoUpload({ user, onClose, onUploadComplete }) {
     React.useEffect(() => {
         const db = window.firebaseDB;
         if (db) {
-            db.ref('audios').once('value').then(snap => {
+            db.ref('studio_musics').once('value').then(snap => {
                 const data = snap.val();
                 if (data) {
-                    setAudios(Object.values(data));
+                    const audioList = Object.keys(data).map(k => {
+                        const item = data[k];
+                        return {
+                            id: k,
+                            name: item.title || 'Música sem título',
+                            artistName: item.artistName || item.description || 'Desconhecido',
+                            coverUrl: item.bannerUrl || '',
+                            mediaUrl: item.audioUrl || ''
+                        };
+                    });
+                    setAudios(audioList.reverse());
                 }
+                setIsLoadingAudios(false);
+            }).catch(() => {
+                setIsLoadingAudios(false);
             });
+        } else {
+            setIsLoadingAudios(false);
         }
 
         const checkMobile = () => {
@@ -328,7 +344,7 @@ function VideoUpload({ user, onClose, onUploadComplete }) {
                 const postRef = await db.ref('posts').push(newPost);
                 
                 if (!selectedAudio) {
-                    // Salvar o áudio na biblioteca central
+                    // Salvar o áudio original na biblioteca central
                     await db.ref(`audios/${finalAudioId}`).set({
                         id: finalAudioId,
                         name: `Som original de ${user.name}`,
@@ -338,6 +354,18 @@ function VideoUpload({ user, onClose, onUploadComplete }) {
                         isOriginal: true,
                         timestamp: Date.now(),
                         authorId: user.id
+                    });
+                } else {
+                    // Certificar-se de que a música do estúdio também está na coleção "audios" geral
+                    // Para que outros componentes consigam ler sem precisar olhar em duas tabelas
+                    await db.ref(`audios/${finalAudioId}`).update({
+                        id: finalAudioId,
+                        name: selectedAudio.name,
+                        artistName: selectedAudio.artistName,
+                        coverUrl: selectedAudio.coverUrl,
+                        mediaUrl: selectedAudio.mediaUrl,
+                        isOriginal: false,
+                        timestamp: Date.now()
                     });
                 }
                 
@@ -442,12 +470,12 @@ function VideoUpload({ user, onClose, onUploadComplete }) {
 
                         {/* Video & Canvas Container */}
                         <div className="flex-1 bg-black relative flex items-center justify-center" ref={containerRef}>
-                            <video ref={videoRef} src={previewUrl} className="absolute inset-0 w-full h-full object-contain" autoPlay loop playsInline muted />
+                            <video ref={videoRef} src={previewUrl} className="absolute inset-0 w-full h-full object-contain" autoPlay loop playsInline />
                             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full object-contain pointer-events-none z-10" />
                             
                             {/* Toca o áudio separado apenas se não veio já embutido da câmera, ou se o usuário selecionar um novo aqui */}
                             {selectedAudio && file && !file.name?.startsWith('capture_') && (
-                                <audio src={selectedAudio.mediaUrl} autoPlay loop volume={musicVolume} />
+                                <audio ref={el => { if(el) el.volume = musicVolume; }} src={selectedAudio.mediaUrl} autoPlay loop />
                             )}
                             
                             {/* Draggable transparent overlays for texts to capture events while displaying in canvas */}
@@ -493,21 +521,32 @@ function VideoUpload({ user, onClose, onUploadComplete }) {
                                     <button onClick={() => setShowAudioMenu(false)}><div className="icon-x text-2xl"></div></button>
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                                    <div className={`flex items-center gap-3 p-3 rounded-xl ${!selectedAudio ? 'bg-indigo-600/30 border border-indigo-500' : 'bg-gray-800'}`} onClick={() => { setSelectedAudio(null); setShowAudioMenu(false); }}>
+                                    <div className={`flex items-center gap-3 p-3 rounded-xl ${!selectedAudio ? 'bg-indigo-600/30 border border-indigo-500' : 'bg-gray-800 cursor-pointer hover:bg-gray-700'}`} onClick={() => { setSelectedAudio(null); setShowAudioMenu(false); }}>
                                         <div className="w-12 h-12 bg-gray-700 rounded-lg flex items-center justify-center">
                                             <div className="icon-x text-gray-400"></div>
                                         </div>
                                         <div><h3 className="font-bold">Nenhum som</h3></div>
                                     </div>
-                                    {audios.map(audio => (
-                                        <div key={audio.id} className={`flex items-center gap-3 p-3 rounded-xl ${selectedAudio?.id === audio.id ? 'bg-indigo-600/30 border border-indigo-500' : 'bg-gray-800'}`} onClick={() => { setSelectedAudio(audio); setShowAudioMenu(false); }}>
-                                            <img src={audio.coverUrl || 'https://via.placeholder.com/150'} className="w-12 h-12 rounded-lg object-cover" />
-                                            <div>
-                                                <h3 className="font-bold text-sm">{audio.name}</h3>
-                                                <p className="text-xs text-gray-400">{audio.artistName}</p>
-                                            </div>
+                                    
+                                    {isLoadingAudios ? (
+                                        <div className="flex flex-col items-center justify-center py-10 text-gray-400">
+                                            <div className="icon-loader animate-spin text-4xl mb-4"></div>
+                                            <p>Carregando sons...</p>
                                         </div>
-                                    ))}
+                                    ) : audios.length === 0 ? (
+                                        <div className="text-center py-10 text-gray-500">Nenhum som disponível.</div>
+                                    ) : (
+                                        audios.map(audio => (
+                                            <div key={audio.id} className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-gray-700 ${selectedAudio?.id === audio.id ? 'bg-indigo-600/30 border border-indigo-500' : 'bg-gray-800'}`} onClick={() => { setSelectedAudio(audio); setShowAudioMenu(false); }}>
+                                                <img src={audio.coverUrl || 'https://via.placeholder.com/150'} className="w-12 h-12 rounded-lg object-cover" />
+                                                <div className="flex-1">
+                                                    <h3 className="font-bold text-sm line-clamp-1">{audio.name}</h3>
+                                                    <p className="text-xs text-gray-400">{audio.artistName}</p>
+                                                </div>
+                                                {selectedAudio?.id === audio.id && <div className="icon-check text-indigo-400"></div>}
+                                            </div>
+                                        ))
+                                    )}
                                 </div>
                             </div>
                         )}

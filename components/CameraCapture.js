@@ -15,6 +15,7 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
 
     const [hasPermission, setHasPermission] = React.useState(null);
     const [audios, setAudios] = React.useState([]);
+    const [isLoadingAudios, setIsLoadingAudios] = React.useState(true);
     const [showAudioMenu, setShowAudioMenu] = React.useState(false);
     const [selectedAudio, setSelectedAudio] = React.useState(null);
     const [facingMode, setFacingMode] = React.useState('user');
@@ -39,6 +40,7 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
     const mixedStreamRef = React.useRef(null);
     const sourceNodeRef = React.useRef(null);
     const micSourceRef = React.useRef(null);
+    const finalStreamRef = React.useRef(null);
     const [filters, setFilters] = React.useState([
         { id: 'none', name: 'Nenhum', type: 'none', url: '' },
         { id: 'glasses_thug', name: 'Óculos Thug', type: 'eyes', url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Sunglasses_icon.svg/512px-Sunglasses_icon.svg.png' },
@@ -69,6 +71,7 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
                 } else {
                     setAudios([]);
                 }
+                setIsLoadingAudios(false);
             };
 
             musicRef.on('value', handleData);
@@ -85,47 +88,40 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
         try {
             if (!audioContextRef.current) {
                 audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-            }
-            const ctx = audioContextRef.current;
-            
-            if (ctx.state === 'suspended') {
-                ctx.resume();
-            }
-
-            if (!destRef.current) {
+                
+                const ctx = audioContextRef.current;
                 destRef.current = ctx.createMediaStreamDestination();
+                
+                // Mic
+                micSourceRef.current = ctx.createMediaStreamSource(streamRef.current);
                 micGainRef.current = ctx.createGain();
-                musicGainRef.current = ctx.createGain();
-                
-                micGainRef.current.connect(destRef.current);
-                musicGainRef.current.connect(destRef.current);
-                
-                // Route destination back to speakers so user can hear the music
-                // Actually, if we connect musicGain to dest, it goes to recorder.
-                // We also need music to play through speakers. We can just leave the audio element playing,
-                // but createMediaElementSource mutes the audio element by default.
-                // So we must route musicGain to ctx.destination as well.
-                musicGainRef.current.connect(ctx.destination);
-            }
-
-            // Connect Mic
-            const audioTracks = streamRef.current.getAudioTracks();
-            if (audioTracks.length > 0 && !micSourceRef.current) {
-                micSourceRef.current = ctx.createMediaStreamSource(new MediaStream([audioTracks[0]]));
+                micGainRef.current.gain.value = originalVolume;
                 micSourceRef.current.connect(micGainRef.current);
-            }
+                micGainRef.current.connect(destRef.current);
 
-            // Connect Music
-            if (!sourceNodeRef.current) {
+                // Music
                 sourceNodeRef.current = ctx.createMediaElementSource(audioPlayerRef.current);
+                musicGainRef.current = ctx.createGain();
+                musicGainRef.current.gain.value = musicVolume;
+                sourceNodeRef.current.connect(musicGainRef.current);
+                musicGainRef.current.connect(destRef.current);
+                musicGainRef.current.connect(ctx.destination);
+                
+                // Final Stream
+                finalStreamRef.current = new MediaStream();
+                streamRef.current.getVideoTracks().forEach(track => {
+                    finalStreamRef.current.addTrack(track);
+                });
+                destRef.current.stream.getAudioTracks().forEach(track => {
+                    finalStreamRef.current.addTrack(track);
+                });
+            } else if (finalStreamRef.current) {
+                // Se já estiver inicializado, apenas garantimos que as conexões estejam ativas
+                // (no caso de trocar o áudio)
+                if (sourceNodeRef.current) sourceNodeRef.current.disconnect();
+                sourceNodeRef.current = audioContextRef.current.createMediaElementSource(audioPlayerRef.current);
                 sourceNodeRef.current.connect(musicGainRef.current);
             }
-
-            micGainRef.current.gain.value = originalVolume;
-            musicGainRef.current.gain.value = musicVolume;
-
-            mixedStreamRef.current = destRef.current.stream;
-
         } catch (e) {
             console.error("Error setting up audio mixer:", e);
         }
@@ -137,16 +133,11 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
     }, [originalVolume, musicVolume]);
 
     React.useEffect(() => {
-        if (audioPlayerRef.current) {
-            if (isRecording && selectedAudio) {
-                setupAudioMixer();
-                audioPlayerRef.current.play().catch(console.error);
-            } else {
-                audioPlayerRef.current.pause();
-                audioPlayerRef.current.currentTime = 0;
-            }
+        if (audioPlayerRef.current && selectedAudio) {
+            // Apenas configura o mixer quando seleciona o áudio, não precisa tocar ainda
+            setupAudioMixer();
         }
-    }, [isRecording, selectedAudio]);
+    }, [selectedAudio]);
 
     // Initialize MediaPipe FaceLandmarker
     React.useEffect(() => {
@@ -437,12 +428,8 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
         
         let streamToRecord = streamRef.current;
         
-        if (selectedAudio && mixedStreamRef.current) {
-            const videoTracks = streamRef.current.getVideoTracks();
-            const mixedAudioTracks = mixedStreamRef.current.getAudioTracks();
-            if (videoTracks.length > 0 && mixedAudioTracks.length > 0) {
-                streamToRecord = new MediaStream([videoTracks[0], mixedAudioTracks[0]]);
-            }
+        if (selectedAudio && finalStreamRef.current) {
+            streamToRecord = finalStreamRef.current;
         }
 
         const options = mimeType ? { mimeType, videoBitsPerSecond: 2500000, audioBitsPerSecond: 128000 } : { videoBitsPerSecond: 2500000, audioBitsPerSecond: 128000 };
@@ -469,6 +456,12 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
             setRecordingTime(0);
         };
 
+        if (selectedAudio && audioPlayerRef.current && audioContextRef.current) {
+            audioContextRef.current.resume();
+            audioPlayerRef.current.currentTime = 0;
+            audioPlayerRef.current.play().catch(console.error);
+        }
+
         mediaRecorderRef.current.start();
         setIsRecording(true);
         
@@ -487,6 +480,9 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
             vibrate(50);
             mediaRecorderRef.current.stop();
+        }
+        if (selectedAudio && audioPlayerRef.current) {
+            audioPlayerRef.current.pause();
         }
     };
 
@@ -696,20 +692,29 @@ function CameraCapture({ onCapture, onClose, photoOnly = false }) {
                             </div>
                         </div>
 
-                        {audios.map(audio => (
-                            <div 
-                                key={audio.id} 
-                                className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer ${selectedAudio?.id === audio.id ? 'bg-indigo-600/30 border border-indigo-500' : 'bg-gray-800 hover:bg-gray-700'}`}
-                                onClick={() => { setSelectedAudio(audio); setShowAudioMenu(false); }}
-                            >
-                                <img src={audio.coverUrl || 'https://via.placeholder.com/150'} className="w-12 h-12 rounded-lg object-cover" />
-                                <div className="flex-1">
-                                    <h3 className="font-bold text-sm line-clamp-1">{audio.name}</h3>
-                                    <p className="text-xs text-gray-400">{audio.artistName}</p>
-                                </div>
-                                {selectedAudio?.id === audio.id && <div className="icon-check text-indigo-400"></div>}
+                        {isLoadingAudios ? (
+                            <div className="flex flex-col items-center justify-center py-10 text-gray-400">
+                                <div className="icon-loader animate-spin text-4xl mb-4"></div>
+                                <p>Carregando músicas...</p>
                             </div>
-                        ))}
+                        ) : audios.length === 0 ? (
+                            <div className="text-center py-10 text-gray-500">Nenhuma música disponível.</div>
+                        ) : (
+                            audios.map(audio => (
+                                <div 
+                                    key={audio.id} 
+                                    className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer ${selectedAudio?.id === audio.id ? 'bg-indigo-600/30 border border-indigo-500' : 'bg-gray-800 hover:bg-gray-700'}`}
+                                    onClick={() => { setSelectedAudio(audio); setShowAudioMenu(false); }}
+                                >
+                                    <img src={audio.coverUrl || 'https://via.placeholder.com/150'} className="w-12 h-12 rounded-lg object-cover" />
+                                    <div className="flex-1">
+                                        <h3 className="font-bold text-sm line-clamp-1">{audio.name}</h3>
+                                        <p className="text-xs text-gray-400">{audio.artistName}</p>
+                                    </div>
+                                    {selectedAudio?.id === audio.id && <div className="icon-check text-indigo-400"></div>}
+                                </div>
+                            ))
+                        )}
                     </div>
                 </div>
             )}

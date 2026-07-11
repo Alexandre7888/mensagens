@@ -78,11 +78,23 @@ function ProfileSetup({ userData, onComplete }) {
         imageSmoothingQuality: 'high',
       });
       
-      const base64 = canvas.toDataURL('image/jpeg', 0.6);
-      
-      setPreview(base64);
-      setBase64Image(base64);
-      closeCropModal();
+      canvas.toBlob(async (blob) => {
+          try {
+              setProcessingState({ isProcessing: true, progress: 50 });
+              closeCropModal();
+              
+              // Converte blob para file para enviar pro GAS
+              const file = new File([blob], "profile.jpg", { type: "image/jpeg" });
+              const url = await window.api.uploadImageToService(file);
+              
+              setPreview(url);
+              setBase64Image(url);
+              setProcessingState({ isProcessing: false, progress: 100 });
+          } catch (e) {
+              alert("Erro ao enviar imagem.");
+              setProcessingState({ isProcessing: false, progress: 0 });
+          }
+      }, 'image/jpeg', 0.6);
     }
   };
 

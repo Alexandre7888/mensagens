@@ -231,15 +231,19 @@ function ChatInterface({ user, onLogout }) {
                 const targetData = data[targetId];
                 
                 await db.ref(`users/${user.id}/chats/${targetId}`).set({
-                    name: targetData.name || targetData.username,
+                    name: targetData.name || targetData.username || 'Usuário',
                     type: 'direct',
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+                    targetId: targetId,
+                    avatar: targetData.profilePicture || null
                 });
                 
                 await db.ref(`users/${targetId}/chats/${user.id}`).set({
-                    name: user.name,
+                    name: user.name || allUsersData[user.id]?.username || 'Usuário',
                     type: 'direct',
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+                    targetId: user.id,
+                    avatar: user.avatar || allUsersData[user.id]?.profilePicture || null
                 });
                 
                 setShowAddContact(false);
@@ -251,6 +255,23 @@ function ChatInterface({ user, onLogout }) {
         } catch(e) {
             showToastMessage("Erro ao buscar.", "error");
         }
+    };
+
+    const getEncryptionKey = (chatId, type, targetId) => {
+        if (type === 'group') return chatId;
+        const target = targetId || chatId.replace(user.id, '').replace('_', '');
+        return [user.id, target].sort().join('_');
+    };
+
+    const renderLastMessage = (chat) => {
+        if (chat.type === 'community') return 'Comunidade';
+        if (!chat.lastMessage) return 'Toque para conversar';
+        if (chat.lastMessage.startsWith('U2FsdGVkX1')) {
+            const key = getEncryptionKey(chat.id, chat.type, chat.targetId);
+            const decrypted = window.CryptoUtils ? window.CryptoUtils.decrypt(chat.lastMessage, key) : chat.lastMessage;
+            return decrypted || 'Mensagem criptografada';
+        }
+        return chat.lastMessage;
     };
 
     const createGroup = async () => {
@@ -349,7 +370,11 @@ function ChatInterface({ user, onLogout }) {
             }
         } else {
             await db.ref(`users/${user.id}/chats/${activeChat.id}`).update(chatUpdate);
-            await db.ref(`users/${activeChat.id}/chats/${user.id}`).update(chatUpdate);
+            
+            const targetId = activeChat.targetId || activeChat.id;
+            if (targetId !== user.id) {
+                await db.ref(`users/${targetId}/chats/${user.id}`).update(chatUpdate);
+            }
         }
         
         setMessageInput("");
@@ -553,8 +578,8 @@ function ChatInterface({ user, onLogout }) {
                                                     <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-800 flex items-center justify-center text-white shadow-sm flex-shrink-0">
                                                         <div className="icon-network text-2xl"></div>
                                                     </div>
-                                                ) : chat.type === 'direct' && allUsersData[chat.targetId || chat.id]?.profilePicture ? (
-                                                    <img src={allUsersData[chat.targetId || chat.id].profilePicture} className="w-12 h-12 rounded-full object-cover shadow-sm flex-shrink-0 border border-gray-100" />
+                                                ) : chat.type === 'direct' && (chat.avatar || allUsersData[chat.targetId || chat.id]?.profilePicture) ? (
+                                                    <img src={chat.avatar || allUsersData[chat.targetId || chat.id].profilePicture} className="w-12 h-12 rounded-full object-cover shadow-sm flex-shrink-0 border border-gray-100" />
                                                 ) : (
                                                     <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white font-bold text-lg shadow-sm flex-shrink-0">
                                                         {(chat.name || 'Chat').charAt(0).toUpperCase()}
@@ -569,7 +594,7 @@ function ChatInterface({ user, onLogout }) {
                                                     <h3 className="font-bold text-gray-800 truncate group-hover:text-indigo-700 transition-colors">{chat.name}</h3>
                                                 </div>
                                                 <p className={`text-sm truncate ${chat.type === 'community' ? 'text-indigo-600 font-medium' : 'text-gray-500'}`}>
-                                                    {chat.type === 'community' ? 'Comunidade' : (chat.lastMessage || 'Toque para conversar')}
+                                                    {renderLastMessage(chat)}
                                                 </p>
                                             </div>
                                         </div>
@@ -994,8 +1019,8 @@ function ChatInterface({ user, onLogout }) {
                                 <div className="w-full h-full bg-gradient-to-br from-blue-600 to-indigo-800 flex items-center justify-center text-white">
                                     <div className="icon-network text-6xl"></div>
                                 </div>
-                            ) : quickActionChat.type === 'direct' && allUsersData[quickActionChat.targetId || quickActionChat.id]?.profilePicture ? (
-                                <img src={allUsersData[quickActionChat.targetId || quickActionChat.id].profilePicture} className="w-full h-full object-cover" />
+                            ) : quickActionChat.type === 'direct' && (quickActionChat.avatar || allUsersData[quickActionChat.targetId || quickActionChat.id]?.profilePicture) ? (
+                                <img src={quickActionChat.avatar || allUsersData[quickActionChat.targetId || quickActionChat.id].profilePicture} className="w-full h-full object-cover" />
                             ) : (
                                 <div className="w-full h-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white font-bold text-6xl">
                                     {(quickActionChat.name || 'Chat').charAt(0).toUpperCase()}
