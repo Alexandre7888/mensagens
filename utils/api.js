@@ -68,6 +68,32 @@ const api = {
   },
 
   // Helper to compress image and convert to base64
+  uploadImageToService: async (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async function() {
+        try {
+          const URL = "https://script.google.com/macros/s/AKfycbzYlwb6VwgfW9R2ZKQ3QEIvPwakVAAdcfLxPN8gIFcMdpAzyTsZn1ZnglCuwKEpkOla/exec";
+          const resposta = await fetch(URL, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain" },
+            body: JSON.stringify({ file: reader.result, fileName: file.name })
+          });
+          const dados = await resposta.json();
+          if (dados.url) {
+            resolve(dados.url);
+          } else {
+            reject("Erro no upload");
+          }
+        } catch (e) {
+          reject(e);
+        }
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  },
+
   compressImage: (file, maxWidth = 800, quality = 0.6) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -180,6 +206,26 @@ const api = {
       }
     } catch (error) {
       console.error('Notification Error:', error);
+    }
+  },
+
+  setUserOnlineStatus: async (userId, isOnline) => {
+    if (!window.firebaseDB) return;
+    try {
+        const statusRef = window.firebaseDB.ref(`users/${userId}/status`);
+        await statusRef.update({
+            online: isOnline,
+            lastSeen: window.firebase.database.ServerValue.TIMESTAMP
+        });
+        
+        if (isOnline) {
+            statusRef.onDisconnect().update({
+                online: false,
+                lastSeen: window.firebase.database.ServerValue.TIMESTAMP
+            });
+        }
+    } catch (e) {
+        console.error("Erro ao definir status online:", e);
     }
   }
 };
