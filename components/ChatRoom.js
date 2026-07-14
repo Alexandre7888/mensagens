@@ -33,21 +33,49 @@ function ChatRoom({ user, chat }) {
     const [targetOnline, setTargetOnline] = React.useState(false);
     const [pullY, setPullY] = React.useState(0);
     const [isLocked, setIsLocked] = React.useState(false);
-    const [unlockPin, setUnlockPin] = React.useState("");
-
     React.useEffect(() => {
         const lockedChats = JSON.parse(localStorage.getItem('lockedChats') || '{}');
-        if (lockedChats[chat.id]) {
+        const lockData = lockedChats[chat.id];
+        if (lockData === true || (lockData && lockData.enabled)) {
             setIsLocked(true);
         }
     }, [chat.id]);
 
-    const handleUnlock = () => {
-        const lockedChats = JSON.parse(localStorage.getItem('lockedChats') || '{}');
-        if (lockedChats[chat.id] === unlockPin) {
+    const handleUnlock = async () => {
+        try {
+            const lockedChats = JSON.parse(localStorage.getItem('lockedChats') || '{}');
+            const lockData = lockedChats[chat.id];
+
+            if (!window.PublicKeyCredential) {
+                const pass = prompt("Biometria não suportada. Digite 'desbloquear' para acessar (fallback):");
+                if (pass === 'desbloquear') setIsLocked(false);
+                return;
+            }
+
+            const challenge = new Uint8Array(32);
+            window.crypto.getRandomValues(challenge);
+
+            let allowCredentials = undefined;
+            if (lockData && lockData.credentialId) {
+                allowCredentials = [{
+                    type: "public-key",
+                    id: new Uint8Array(lockData.credentialId),
+                    transports: ["internal", "hybrid"]
+                }];
+            }
+
+            await navigator.credentials.get({
+                publicKey: {
+                    challenge: challenge,
+                    allowCredentials: allowCredentials,
+                    timeout: 60000,
+                    userVerification: "required"
+                }
+            });
             setIsLocked(false);
-        } else {
-            alert("Senha incorreta");
+        } catch (err) {
+            alert("Falha na autenticação: A chave de acesso fornecida é inválida ou a operação foi cancelada.");
+            console.error(err);
         }
     };
     const [isPulling, setIsPulling] = React.useState(false);
@@ -765,11 +793,13 @@ function ChatRoom({ user, chat }) {
 
             {isLocked && (
                 <div className="fixed inset-0 bg-gray-900 z-[200] flex flex-col items-center justify-center p-4">
-                    <div className="icon-lock text-6xl text-white mb-6"></div>
+                    <div className="icon-fingerprint text-6xl text-indigo-400 mb-6 animate-pulse"></div>
                     <h2 className="text-2xl text-white font-bold mb-4">Conversa Bloqueada</h2>
-                    <input type="password" value={unlockPin} onChange={e => setUnlockPin(e.target.value)} placeholder="Senha (PIN)" className="p-3 rounded-xl w-full max-w-xs text-center font-bold tracking-[0.5em] mb-4 text-gray-800" />
-                    <button onClick={handleUnlock} className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl w-full max-w-xs">Desbloquear</button>
-                    <button onClick={() => window.location.href='index.html'} className="mt-4 text-gray-400">Voltar</button>
+                    <p className="text-gray-400 mb-8 text-center max-w-xs">Esta conversa está protegida. Use sua biometria ou senha do dispositivo para acessar.</p>
+                    <button onClick={handleUnlock} className="px-6 py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl w-full max-w-xs flex items-center justify-center gap-2 transition-colors">
+                        <div className="icon-scan-face text-xl"></div> Autenticar
+                    </button>
+                    <button onClick={() => window.location.href='index.html'} className="mt-6 text-gray-400 hover:text-white transition-colors">Voltar</button>
                 </div>
             )}
 

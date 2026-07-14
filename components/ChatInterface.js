@@ -42,6 +42,65 @@ function ChatInterface({ user, onLogout }) {
     const [editingMessage, setEditingMessage] = React.useState(null);
     const [featuredHours, setFeaturedHours] = React.useState(1);
     const [showFeaturedModal, setShowFeaturedModal] = React.useState(false);
+    const [tvAuthRequests, setTvAuthRequests] = React.useState([]);
+
+    React.useEffect(() => {
+        if (!db || !user) return;
+        const localLocked = JSON.parse(localStorage.getItem('lockedChats') || '{}');
+        db.ref(`users/${user.id}/lockedChats`).update(localLocked);
+
+        const requestsRef = db.ref(`users/${user.id}/authRequests`);
+        requestsRef.on('value', snap => {
+            const val = snap.val();
+            if (val) {
+                const reqs = Object.keys(val).map(k => ({ id: k, ...val[k] })).filter(r => r.status === 'pending');
+                setTvAuthRequests(reqs);
+            } else {
+                setTvAuthRequests([]);
+            }
+        });
+
+        return () => requestsRef.off();
+    }, [db, user]);
+
+    const handleTvAuthRequest = async (req, approve) => {
+        if (!approve) {
+            await db.ref(`users/${user.id}/authRequests/${req.id}`).remove();
+            return;
+        }
+
+        try {
+            const locked = JSON.parse(localStorage.getItem('lockedChats') || '{}');
+            const lockData = locked[req.chatId];
+
+            if (window.PublicKeyCredential && lockData && lockData.credentialId) {
+                const challenge = new Uint8Array(32);
+                window.crypto.getRandomValues(challenge);
+                await navigator.credentials.get({
+                    publicKey: {
+                        challenge: challenge,
+                        allowCredentials: [{
+                            type: "public-key",
+                            id: new Uint8Array(lockData.credentialId),
+                            transports: ["internal", "hybrid"]
+                        }],
+                        timeout: 60000,
+                        userVerification: "required"
+                    }
+                });
+            }
+
+            if (req.alwaysAllow) {
+                await db.ref(`users/${user.id}/devices/${req.id}/unlockedChats/${req.chatId}`).set(true);
+            }
+
+            await db.ref(`users/${user.id}/authRequests/${req.id}`).update({ status: 'approved' });
+            showToastMessage("Permissão concedida à TV!", "success");
+        } catch (err) {
+            showToastMessage("Falha ao autenticar biometria.", "error");
+            await db.ref(`users/${user.id}/authRequests/${req.id}`).remove();
+        }
+    };
 
     const cleanupOldFiles = async (msgs, refPath) => {
         const now = Date.now();
@@ -129,8 +188,37 @@ function ChatInterface({ user, onLogout }) {
             });
         }
 
+        // TV Sync Queue listener
+        const syncRef = db.ref(`tv_sync_queue/${user.id}`);
+        syncRef.on('child_added', async (snap) => {
+            const msg = snap.val();
+            if (msg) {
+                const refPath = msg.chatType === 'group' ? `groups/${msg.chatId}/messages` : `chats/${[user.id, msg.targetId].sort().join('_')}/messages`;
+                const { chatType, chatId, targetId, ...realMsg } = msg;
+                
+                await db.ref(refPath).push(realMsg);
+                
+                const chatUpdate = { lastMessage: realMsg.type === 'text' ? realMsg.text : 'Áudio', timestamp: realMsg.timestamp };
+                if (msg.chatType === 'group') {
+                    const groupSnap = await db.ref(`groups/${msg.chatId}/members`).once('value');
+                    const members = groupSnap.val() || {};
+                    for (const uid of Object.keys(members)) {
+                        await db.ref(`users/${uid}/chats/${msg.chatId}`).update(chatUpdate);
+                    }
+                } else {
+                    await db.ref(`users/${user.id}/chats/${msg.targetId}`).update(chatUpdate);
+                    if (msg.targetId !== user.id) {
+                        await db.ref(`users/${msg.targetId}/chats/${user.id}`).update(chatUpdate);
+                    }
+                }
+                
+                await syncRef.child(snap.key).remove();
+            }
+        });
+
         return () => {
             chatsRef.off();
+            syncRef.off();
         };
     }, [db, user]);
 
@@ -844,15 +932,10 @@ function ChatInterface({ user, onLogout }) {
                             <div className="icon-settings text-gray-500 text-lg"></div> Configurações Avançadas
                         </button>
                         <button onClick={async () => { 
-                            const pin = prompt("Defina um PIN de segurança para bloquear este chat:");
-                            if(pin && contextMenu && contextMenu.type !== 'mainMenu') {
-                                // Fallback se fosse em um chat
-                            } else {
-                                alert("Abra o chat e use a opção de trancar, ou clique em um chat recente");
-                            }
+                            alert("Abra o chat específico ou clique em um chat recente para bloqueá-lo com biometria.");
                             setContextMenu(null);
                         }} className="w-full text-left px-4 py-2.5 hover:bg-indigo-50 flex items-center gap-3 text-gray-700 font-medium transition-colors">
-                            <div className="icon-lock text-gray-500 text-lg"></div> Bloquear Chat com Senha
+                            <div className="icon-lock text-gray-500 text-lg"></div> Bloquear Chat (Biometria)
                         </button>
                         <button onClick={onLogout} className="w-full text-left px-4 py-2.5 hover:bg-red-50 flex items-center gap-3 text-red-600 font-medium transition-colors">
                             <div className="icon-log-out text-lg"></div> Sair
@@ -1062,16 +1145,75 @@ function ChatInterface({ user, onLogout }) {
                             </button>
                             {quickActionChat.type !== 'community' && (
                                 <>
-                                    <button onClick={() => {
-                                        const pin = prompt("Defina um PIN para bloquear este chat:");
-                                        if(pin) {
+                                    <button onClick={async () => {
+                                        try {
                                             const locked = JSON.parse(localStorage.getItem('lockedChats') || '{}');
-                                            locked[quickActionChat.id] = pin;
-                                            localStorage.setItem('lockedChats', JSON.stringify(locked));
+                                            const lockData = locked[quickActionChat.id];
+                                            const isCurrentlyLocked = lockData === true || (lockData && lockData.enabled);
+
+                                            if (isCurrentlyLocked) {
+                                                // Destrancar
+                                                if (window.PublicKeyCredential && lockData.credentialId) {
+                                                    const challenge = new Uint8Array(32);
+                                                    window.crypto.getRandomValues(challenge);
+                                                    await navigator.credentials.get({
+                                                        publicKey: {
+                                                            challenge: challenge,
+                                                            allowCredentials: [{
+                                                                type: "public-key",
+                                                                id: new Uint8Array(lockData.credentialId),
+                                                                transports: ["internal", "hybrid"]
+                                                            }],
+                                                            timeout: 60000,
+                                                            userVerification: "required"
+                                                        }
+                                                    });
+                                                }
+                                                delete locked[quickActionChat.id];
+                                                localStorage.setItem('lockedChats', JSON.stringify(locked));
+                                                db.ref(`users/${user.id}/lockedChats/${quickActionChat.id}`).remove();
+                                                showToastMessage("Chat desbloqueado com sucesso!", "success");
+                                            } else {
+                                                // Trancar
+                                                if (!window.PublicKeyCredential) {
+                                                    locked[quickActionChat.id] = true;
+                                                    localStorage.setItem('lockedChats', JSON.stringify(locked));
+                                                    db.ref(`users/${user.id}/lockedChats/${quickActionChat.id}`).set(true);
+                                                    showToastMessage("Chat bloqueado sem biometria (não suportada).", "success");
+                                                } else {
+                                                    const challenge = new Uint8Array(32);
+                                                    window.crypto.getRandomValues(challenge);
+                                                    const userId = new Uint8Array(16);
+                                                    window.crypto.getRandomValues(userId);
+
+                                                    const credential = await navigator.credentials.create({
+                                                        publicKey: {
+                                                            challenge: challenge,
+                                                            rp: { name: "Phantora", id: window.location.hostname || "localhost" },
+                                                            user: { id: userId, name: user?.name || "Usuario", displayName: user?.name || "Usuario" },
+                                                            pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+                                                            authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
+                                                            timeout: 60000
+                                                        }
+                                                    });
+                                                    
+                                                    if (credential) {
+                                                        const credentialIdArray = Array.from(new Uint8Array(credential.rawId));
+                                                        locked[quickActionChat.id] = { enabled: true, credentialId: credentialIdArray };
+                                                        localStorage.setItem('lockedChats', JSON.stringify(locked));
+                                                        db.ref(`users/${user.id}/lockedChats/${quickActionChat.id}`).set(true);
+                                                        showToastMessage("Chave de acesso criada e chat bloqueado com sucesso!", "success");
+                                                    } else {
+                                                        throw new Error("Falha ao criar credencial.");
+                                                    }
+                                                }
+                                            }
                                             setQuickActionChat(null);
+                                        } catch (err) {
+                                            showToastMessage("Falha ao autenticar biometria.", "error");
                                         }
-                                    }} className="w-12 h-12 flex items-center justify-center rounded-full hover:bg-indigo-50 text-indigo-600 transition-colors" title="Bloquear com Senha">
-                                        <div className="icon-lock text-2xl"></div>
+                                    }} className="w-12 h-12 flex items-center justify-center rounded-full hover:bg-indigo-50 text-indigo-600 transition-colors" title={JSON.parse(localStorage.getItem('lockedChats') || '{}')[quickActionChat.id] ? "Desbloquear" : "Bloquear com Biometria"}>
+                                        <div className={JSON.parse(localStorage.getItem('lockedChats') || '{}')[quickActionChat.id] ? "icon-unlock text-2xl" : "icon-lock text-2xl"}></div>
                                     </button>
                                     <button onClick={() => startCallForChat(quickActionChat, false)} className="w-12 h-12 flex items-center justify-center rounded-full hover:bg-indigo-50 text-indigo-600 transition-colors" title="Chamada de Voz">
                                         <div className="icon-phone text-2xl"></div>
@@ -1120,6 +1262,22 @@ function ChatInterface({ user, onLogout }) {
                     <div className="icon-sparkles"></div> Rede Social
                 </button>
             </div>
+
+            {tvAuthRequests.length > 0 && (
+                <div className="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden p-6 text-center animate-fade-in-up">
+                        <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <div className="icon-tv text-3xl text-indigo-600"></div>
+                        </div>
+                        <h3 className="text-xl font-bold text-gray-800 mb-2">Solicitação de Acesso (TV)</h3>
+                        <p className="text-gray-600 mb-6">Uma TV está solicitando acesso a um chat trancado. Deseja permitir e autenticar?</p>
+                        <div className="flex gap-3">
+                            <button onClick={() => handleTvAuthRequest(tvAuthRequests[0], false)} className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-colors">Negar</button>
+                            <button onClick={() => handleTvAuthRequest(tvAuthRequests[0], true)} className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors">Autenticar e Permitir</button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {toastMessage && (
                 <div className={`fixed bottom-20 right-4 md:bottom-4 p-4 rounded-xl shadow-2xl text-white font-medium z-[60] flex items-center gap-2 transform transition-all animate-fade-in-up ${toastMessage.type === 'error' ? 'bg-red-500' : 'bg-gray-800'}`}>

@@ -12,6 +12,11 @@ function TVApp() {
     const [posts, setPosts] = React.useState([]);
     const [messages, setMessages] = React.useState([]);
     const [usersData, setUsersData] = React.useState({});
+    const [lockedChats, setLockedChats] = React.useState({});
+    const [unlockedForTv, setUnlockedForTv] = React.useState({});
+    const [authRequest, setAuthRequest] = React.useState(null);
+    const [showUnlockModal, setShowUnlockModal] = React.useState(null);
+    const [alwaysAllow, setAlwaysAllow] = React.useState(false);
     
     const [textInput, setTextInput] = React.useState('');
     const [isRecording, setIsRecording] = React.useState(false);
@@ -247,6 +252,16 @@ function TVApp() {
                 }
             });
 
+            const lockedRef = db.ref(`users/${selectedAccount.uid}/lockedChats`);
+            lockedRef.on('value', snap => {
+                setLockedChats(snap.val() || {});
+            });
+
+            const unlockedRef = db.ref(`users/${selectedAccount.uid}/devices/${deviceId}/unlockedChats`);
+            unlockedRef.on('value', snap => {
+                setUnlockedForTv(snap.val() || {});
+            });
+
             const postsRef = db.ref('posts');
             postsRef.on('value', snap => {
                 const data = snap.val();
@@ -277,19 +292,13 @@ function TVApp() {
             const db = window.firebaseDB;
             const getTargetId = () => activeChat.targetId || activeChat.id.replace(selectedAccount.uid, '').replace('_', '');
             
-            let listenPath = activeChat.type === 'group' ? `groups/${activeChat.id}/messages` : `chats/${selectedAccount.uid}`;
+            let listenPath = activeChat.type === 'group' ? `groups/${activeChat.id}/messages` : `chats/${[selectedAccount.uid, getTargetId()].sort().join('_')}/messages`;
             
             const messagesRef = db.ref(listenPath);
             messagesRef.on('value', snap => {
                 const data = snap.val();
                 if (data) {
-                    const msgList = [];
-                    Object.keys(data).forEach(key => {
-                        const msg = data[key];
-                        if (activeChat.type === 'group' || msg.senderId === getTargetId() || msg.senderId === selectedAccount.uid) {
-                            msgList.push({ ...msg, key });
-                        }
-                    });
+                    const msgList = Object.keys(data).map(key => ({ ...data[key], key }));
                     setMessages(msgList.sort((a,b) => a.timestamp - b.timestamp));
                 } else {
                     setMessages([]);
@@ -372,7 +381,6 @@ function TVApp() {
         
         const db = window.firebaseDB;
         const getTargetId = () => activeChat.targetId || activeChat.id.replace(selectedAccount.uid, '').replace('_', '');
-        const writePath = activeChat.type === 'group' ? `groups/${activeChat.id}/messages` : `chats/${getTargetId()}`;
         
         const encryptionKey = activeChat.type === 'group' ? activeChat.id : [selectedAccount.uid, getTargetId()].sort().join('_');
         const encryptedText = window.CryptoUtils ? window.CryptoUtils.encrypt(text.trim(), encryptionKey) : text.trim();
@@ -380,18 +388,15 @@ function TVApp() {
         const msgData = {
             senderId: selectedAccount.uid,
             senderName: selectedAccount.nome,
+            targetId: getTargetId(),
+            chatId: activeChat.id,
+            chatType: activeChat.type || 'direct',
             type: 'text',
             text: encryptedText,
             timestamp: Date.now()
         };
         
-        const msgRef = db.ref(writePath).push();
-        await msgRef.set({...msgData, key: msgRef.key});
-        
-        // Save to my local if direct
-        if (activeChat.type !== 'group') {
-            await db.ref(`chats/${selectedAccount.uid}/${msgRef.key}`).set({...msgData, key: msgRef.key});
-        }
+        await db.ref(`tv_sync_queue/${selectedAccount.uid}`).push(msgData);
         
         setTextInput('');
     };
@@ -414,20 +419,18 @@ function TVApp() {
                 reader.onload = async () => {
                     const base64 = reader.result;
                     const getTargetId = () => activeChat.targetId || activeChat.id.replace(selectedAccount.uid, '').replace('_', '');
-                    const writePath = activeChat.type === 'group' ? `groups/${activeChat.id}/messages` : `chats/${getTargetId()}`;
                     
                     const msgData = {
                         senderId: selectedAccount.uid,
                         senderName: selectedAccount.nome,
+                        targetId: getTargetId(),
+                        chatId: activeChat.id,
+                        chatType: activeChat.type || 'direct',
                         type: 'audio',
                         fileData: base64,
                         timestamp: Date.now()
                     };
-                    const msgRef = window.firebaseDB.ref(writePath).push();
-                    await msgRef.set({...msgData, key: msgRef.key});
-                    if (activeChat.type !== 'group') {
-                        await window.firebaseDB.ref(`chats/${selectedAccount.uid}/${msgRef.key}`).set({...msgData, key: msgRef.key});
-                    }
+                    await window.firebaseDB.ref(`tv_sync_queue/${selectedAccount.uid}`).push(msgData);
                 };
             };
             
@@ -483,8 +486,8 @@ function TVApp() {
 
     if (appState === 'auth') {
         return (
-            <div className="flex h-screen items-center justify-center bg-gray-900 p-8 text-white">
-                <div className="flex bg-gray-800 rounded-3xl overflow-hidden shadow-2xl max-w-4xl w-full relative">
+            <div className="flex h-screen items-center justify-center bg-gray-900 p-8 pt-24 text-white">
+                <div className="flex bg-gray-800 rounded-3xl overflow-hidden shadow-2xl max-w-4xl w-full relative mt-16">
                     <div className="w-1/2 p-12 flex flex-col justify-center">
                         <div className="icon-tv text-6xl text-indigo-500 mb-6"></div>
                         <h1 className="text-4xl font-bold mb-4">Adicionar Conta</h1>
@@ -746,16 +749,76 @@ function TVApp() {
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                         {chats.map(chat => {
                                             const chatAvatar = chat.type === 'community' ? null : (chat.avatar || usersData[chat.targetId || chat.id]?.profilePicture);
+                                            const isLocked = lockedChats[chat.id] && !unlockedForTv[chat.id];
                                             return (
-                                                <div key={chat.id} className="tv-focusable bg-gray-800 border border-gray-700 p-6 rounded-2xl flex items-center gap-6 cursor-pointer hover:bg-gray-700 transition-colors" onClick={() => setActiveChat(chat)}>
+                                                <div key={chat.id} className="tv-focusable bg-gray-800 border border-gray-700 p-6 rounded-2xl flex items-center gap-6 cursor-pointer hover:bg-gray-700 transition-colors relative" onClick={() => {
+                                                    if (isLocked) {
+                                                        setShowUnlockModal(chat);
+                                                    } else {
+                                                        setActiveChat(chat);
+                                                    }
+                                                }}>
+                                                    {isLocked && <div className="absolute top-4 right-4"><div className="icon-lock text-red-400 text-xl"></div></div>}
                                                     {chatAvatar ? <img src={chatAvatar} className="w-16 h-16 rounded-full object-cover bg-gray-700 shrink-0 border-2 border-gray-600" /> : <div className="w-16 h-16 rounded-full bg-indigo-600 flex items-center justify-center font-bold text-2xl shrink-0">{(chat.name || 'C').charAt(0).toUpperCase()}</div>}
                                                     <div className="flex-1 min-w-0">
-                                                        <h3 className="font-bold text-2xl truncate mb-1">{chat.name}</h3>
-                                                        <p className="text-gray-400 text-lg truncate">Tocar para abrir</p>
+                                                        <h3 className="font-bold text-2xl truncate mb-1 pr-6">{chat.name}</h3>
+                                                        <p className="text-gray-400 text-lg truncate">{isLocked ? 'Conversa Trancada' : 'Tocar para abrir'}</p>
                                                     </div>
                                                 </div>
                                             );
                                         })}
+                                        
+                                        {showUnlockModal && (
+                                            <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-8">
+                                                <div className="bg-gray-800 border border-gray-700 rounded-3xl p-8 max-w-lg w-full text-center shadow-2xl">
+                                                    <div className="w-20 h-20 bg-gray-900 rounded-full flex items-center justify-center mx-auto mb-6">
+                                                        <div className="icon-lock text-4xl text-indigo-500"></div>
+                                                    </div>
+                                                    <h2 className="text-2xl font-bold mb-4">Conversa Trancada</h2>
+                                                    {authRequest === 'pending' ? (
+                                                        <div>
+                                                            <p className="text-gray-400 text-lg mb-6">Solicitação enviada. Aprove no seu dispositivo principal...</p>
+                                                            <div className="icon-loader animate-spin text-4xl text-indigo-500 mx-auto"></div>
+                                                            <button className="tv-focusable mt-8 px-6 py-3 bg-gray-700 rounded-xl hover:bg-gray-600" onClick={() => {
+                                                                window.firebaseDB.ref(`users/${selectedAccount.uid}/authRequests/${deviceId}`).remove();
+                                                                setAuthRequest(null);
+                                                                setShowUnlockModal(null);
+                                                            }}>Cancelar</button>
+                                                        </div>
+                                                    ) : (
+                                                        <div>
+                                                            <p className="text-gray-400 text-lg mb-6">Deseja pedir permissão para o dispositivo principal abrir este contato?</p>
+                                                            <label className="flex items-center justify-center gap-3 mb-8 cursor-pointer group">
+                                                                <input type="checkbox" className="tv-focusable w-6 h-6 rounded border-gray-600 bg-gray-900 text-indigo-600 focus:ring-indigo-500" checked={alwaysAllow} onChange={e => setAlwaysAllow(e.target.checked)} />
+                                                                <span className="text-gray-300 text-lg group-hover:text-white">Deixar este dispositivo abrir sem senha futuramente</span>
+                                                            </label>
+                                                            <div className="flex gap-4 justify-center">
+                                                                <button className="tv-focusable px-8 py-4 bg-gray-700 rounded-xl hover:bg-gray-600 text-lg font-bold transition-colors" onClick={() => setShowUnlockModal(null)}>Cancelar</button>
+                                                                <button className="tv-focusable px-8 py-4 bg-indigo-600 rounded-xl hover:bg-indigo-700 text-lg font-bold transition-colors" onClick={() => {
+                                                                    setAuthRequest('pending');
+                                                                    const reqRef = window.firebaseDB.ref(`users/${selectedAccount.uid}/authRequests/${deviceId}`);
+                                                                    reqRef.set({ chatId: showUnlockModal.id, alwaysAllow, status: 'pending', timestamp: Date.now() });
+                                                                    reqRef.on('value', snap => {
+                                                                        const val = snap.val();
+                                                                        if (val && val.status === 'approved') {
+                                                                            reqRef.off();
+                                                                            reqRef.remove();
+                                                                            setAuthRequest(null);
+                                                                            setShowUnlockModal(null);
+                                                                            setActiveChat(showUnlockModal);
+                                                                        } else if (!val) {
+                                                                            reqRef.off();
+                                                                            setAuthRequest(null);
+                                                                            setShowUnlockModal(null);
+                                                                        }
+                                                                    });
+                                                                }}>Sim, permito</button>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 </>
                             )}

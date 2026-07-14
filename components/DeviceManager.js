@@ -151,20 +151,38 @@ function DeviceManager({ onClose, initialScannedId = null }) {
                                 ) : devices.length > 0 ? (
                                     <div className="space-y-3">
                                         {devices.map(dev => (
-                                            <div key={dev.id} className="flex items-center gap-4 p-4 bg-gray-50 border border-gray-100 rounded-xl">
-                                                <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center text-gray-600">
-                                                    <div className="icon-tv text-xl"></div>
+                                            <div key={dev.id} className="flex flex-col gap-2 p-4 bg-gray-50 border border-gray-100 rounded-xl">
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center text-gray-600">
+                                                        <div className="icon-tv text-xl"></div>
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <h4 className="font-bold text-gray-800">{dev.name}</h4>
+                                                        <p className="text-xs text-gray-500">Adicionado em: {new Date(dev.addedAt).toLocaleDateString()}</p>
+                                                    </div>
+                                                    <button 
+                                                        onClick={() => handleDisconnect(dev.id)} 
+                                                        className="px-3 py-1 bg-red-100 text-red-700 hover:bg-red-200 text-xs font-bold rounded-full transition-colors"
+                                                    >
+                                                        Desconectar
+                                                    </button>
                                                 </div>
-                                                <div className="flex-1">
-                                                    <h4 className="font-bold text-gray-800">{dev.name}</h4>
-                                                    <p className="text-xs text-gray-500">Adicionado em: {new Date(dev.addedAt).toLocaleDateString()}</p>
-                                                </div>
-                                                <button 
-                                                    onClick={() => handleDisconnect(dev.id)} 
-                                                    className="px-3 py-1 bg-red-100 text-red-700 hover:bg-red-200 text-xs font-bold rounded-full transition-colors"
-                                                >
-                                                    Desconectar
-                                                </button>
+                                                {dev.unlockedChats && Object.keys(dev.unlockedChats).length > 0 && (
+                                                    <div className="mt-2 pt-2 border-t border-gray-200">
+                                                        <p className="text-xs font-bold text-gray-500 mb-2">Chats liberados para esta TV:</p>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {Object.keys(dev.unlockedChats).map(chatId => (
+                                                                <div key={chatId} className="flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded text-xs text-gray-700">
+                                                                    <span>{chatId.substring(0,6)}...</span>
+                                                                    <button onClick={async () => {
+                                                                        const uid = window.currentUserData.uid || window.currentUserData.userKey;
+                                                                        await window.firebaseDB.ref(`users/${uid}/devices/${dev.id}/unlockedChats/${chatId}`).remove();
+                                                                    }} className="text-red-500 hover:text-red-700 ml-1"><div className="icon-x"></div></button>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         ))}
                                     </div>
