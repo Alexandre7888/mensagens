@@ -512,10 +512,10 @@ function TVApp() {
         const isFullScreenMode = activeChat !== null || activeVideoFeed !== null;
 
         return (
-            <div className="flex h-screen bg-gray-900 text-white overflow-hidden p-6 gap-6">
+            <div className="flex h-screen bg-gray-900 text-white overflow-hidden p-12 md:p-20 gap-8">
                 {/* Sidebar */}
                 {!isFullScreenMode && (
-                    <div className="w-64 bg-gray-800 p-5 flex flex-col border border-gray-700 rounded-3xl z-10 shrink-0 shadow-2xl">
+                    <div className="w-72 bg-gray-800 p-6 flex flex-col border border-gray-700 rounded-3xl z-10 shrink-0 shadow-2xl">
                         <div className="flex items-center gap-3 mb-6 bg-gray-900/50 p-3 rounded-2xl border border-gray-700/50">
                             {selectedAccount?.foto ? <img src={selectedAccount.foto} className="w-10 h-10 rounded-full object-cover bg-gray-700 border border-gray-600" /> : <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-lg font-bold">{(selectedAccount?.nome || '?').charAt(0).toUpperCase()}</div>}
                             <h2 className="text-lg font-bold truncate text-gray-200">{selectedAccount?.nome}</h2>
@@ -724,7 +724,7 @@ function TVApp() {
                         </div>
                     ) : (
                         /* Normal Tab Views */
-                        <div className="flex-1 p-8 overflow-y-auto">
+                        <div className="flex-1 p-10 overflow-y-auto">
                             {currentTab === 'chats' && (
                                 <>
                                     <h1 className="text-3xl font-bold mb-6 flex items-center gap-3 text-gray-100">
