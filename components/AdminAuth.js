@@ -1,15 +1,13 @@
 function AdminAuth({ onSuccess, onFail }) {
-  const [statusMsg, setStatusMsg] = React.useState('Iniciando verificações de segurança...');
+  const [statusMsg, setStatusMsg] = React.useState('Aguardando início...');
+  const [hasStarted, setHasStarted] = React.useState(false);
   
   const ALLOWED_IP = '200.193.63.92';
   const REQUIRED_CITY = 'Itajaí';
   const REQUIRED_STATE = 'Santa Catarina';
 
-  React.useEffect(() => {
-    runSecurityChecks();
-  }, []);
-
   const runSecurityChecks = async () => {
+    setHasStarted(true);
     try {
       // 1. Verificando IP
       setStatusMsg('Verificando endereço IP...');
@@ -107,10 +105,21 @@ function AdminAuth({ onSuccess, onFail }) {
     <div className="min-h-screen flex flex-col items-center justify-center p-4">
       <div className="icon-shield text-6xl text-indigo-500 mb-6 animate-pulse"></div>
       <h2 className="text-xl font-bold mb-4 text-white">Autenticação Restrita</h2>
-      <div className="flex items-center gap-3 text-gray-400">
-        <div className="icon-loader animate-spin"></div>
-        <span>{statusMsg}</span>
-      </div>
+      {!hasStarted ? (
+        <div className="flex flex-col items-center">
+            <button onClick={runSecurityChecks} className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition-colors">
+                Iniciar Verificação de Segurança
+            </button>
+            <p className="mt-6 text-xs text-gray-400 max-w-sm text-center">
+                O navegador solicitará permissão de localização. Você deve permitir para continuar.
+            </p>
+        </div>
+      ) : (
+        <div className="flex items-center gap-3 text-gray-400">
+            <div className="icon-loader animate-spin"></div>
+            <span>{statusMsg}</span>
+        </div>
+      )}
       <p className="mt-6 text-xs text-gray-600 max-w-sm text-center">
         O sistema requer o IP 200.193.63.92, localização em Itajaí/SC e dispositivo registrado de forma única no banco de dados.
       </p>

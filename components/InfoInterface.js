@@ -426,7 +426,34 @@ function InfoInterface({ user, chat }) {
                                     <div className="icon-link text-indigo-600"></div> Convites
                                 </button>
                                 <div className="h-px bg-gray-100 my-1"></div>
-                                <button onClick={() => { window.location.href='index.html'; }} className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center gap-3 text-red-600">
+                                <button onClick={() => { 
+                                    const reason = prompt("Descreva o motivo da denúncia:");
+                                    if(reason) {
+                                        db.ref('reports').push({ type: 'group', targetId: chat.id, reportedBy: user.id, reason, timestamp: Date.now() });
+                                        showToastMessage("Grupo denunciado!");
+                                    }
+                                    setShowMenu(false); 
+                                }} className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center gap-3 text-red-600">
+                                    <div className="icon-flag text-red-600"></div> Denunciar grupo
+                                </button>
+                                <button onClick={async () => { 
+                                    if (isOwner) {
+                                        const newOwnerId = prompt("Você é o dono. Digite o ID do novo dono para poder sair:");
+                                        if (newOwnerId && groupMembers[newOwnerId]) {
+                                            await db.ref(`ownership_transfers/${newOwnerId}`).set({ groupId: chat.id, fromId: user.id, timestamp: Date.now() });
+                                            showToastMessage("Convite de posse enviado!");
+                                        } else {
+                                            showToastMessage("Usuário inválido.", "error");
+                                        }
+                                    } else {
+                                        if (confirm("Deseja mesmo sair do grupo?")) {
+                                            await db.ref(`groups/${chat.id}/members/${user.id}`).remove();
+                                            await db.ref(`users/${user.id}/chats/${chat.id}`).remove();
+                                            window.location.href='index.html';
+                                        }
+                                    }
+                                    setShowMenu(false); 
+                                }} className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center gap-3 text-red-600">
                                     <div className="icon-log-out text-red-600"></div> Sair do grupo
                                 </button>
                                 {isOwner && (
@@ -473,9 +500,41 @@ function InfoInterface({ user, chat }) {
                                 <div className="p-3 bg-gray-50 text-gray-500 rounded-xl text-center">Apenas admins podem gerenciar convites</div>
                             )
                         ) : (
-                            <button onClick={() => setActiveTab('invites')} className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-indigo-50 text-indigo-800 rounded-xl font-bold hover:bg-indigo-100 border border-indigo-200">
-                                <div className="icon-share-2"></div> Gerenciar Convites Pessoais
-                            </button>
+                            <div className="space-y-3">
+                                <button onClick={() => setActiveTab('invites')} className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-indigo-50 text-indigo-800 rounded-xl font-bold hover:bg-indigo-100 border border-indigo-200">
+                                    <div className="icon-share-2"></div> Gerenciar Convites Pessoais
+                                </button>
+                                
+                                <button onClick={async () => {
+                                    if(confirm("Deseja bloquear este contato?")) {
+                                        const targetId = chat.targetId || chat.id.replace(user.id, '').replace('_', '');
+                                        await db.ref(`users/${user.id}/blocked/${targetId}`).set(true);
+                                        showToastMessage("Usuário bloqueado.");
+                                    }
+                                }} className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-red-50 text-red-600 rounded-xl font-bold hover:bg-red-100">
+                                    <div className="icon-ban"></div> Bloquear Contato
+                                </button>
+
+                                <button onClick={async () => {
+                                    const reason = prompt("Descreva o motivo da denúncia:");
+                                    if(reason) {
+                                        const targetId = chat.targetId || chat.id.replace(user.id, '').replace('_', '');
+                                        db.ref('reports').push({ type: 'user', targetId: targetId, reportedBy: user.id, reason, timestamp: Date.now() });
+                                        showToastMessage("Usuário denunciado!");
+                                    }
+                                }} className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-orange-50 text-orange-600 rounded-xl font-bold hover:bg-orange-100">
+                                    <div className="icon-flag"></div> Denunciar Usuário
+                                </button>
+                                
+                                <button onClick={async () => {
+                                    if(confirm("Deseja excluir a conversa?")) {
+                                        await db.ref(`users/${user.id}/chats/${chat.id}`).remove();
+                                        window.location.href = 'index.html';
+                                    }
+                                }} className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700">
+                                    <div className="icon-trash"></div> Excluir Conversa
+                                </button>
+                            </div>
                         )}
                         {inviteLink && (
                             <div className="mt-4 bg-green-50 border border-green-200 rounded-xl p-4">

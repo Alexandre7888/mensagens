@@ -32,6 +32,24 @@ function ChatRoom({ user, chat }) {
     const [ephemeralMode, setEphemeralMode] = React.useState(false);
     const [targetOnline, setTargetOnline] = React.useState(false);
     const [pullY, setPullY] = React.useState(0);
+    const [isLocked, setIsLocked] = React.useState(false);
+    const [unlockPin, setUnlockPin] = React.useState("");
+
+    React.useEffect(() => {
+        const lockedChats = JSON.parse(localStorage.getItem('lockedChats') || '{}');
+        if (lockedChats[chat.id]) {
+            setIsLocked(true);
+        }
+    }, [chat.id]);
+
+    const handleUnlock = () => {
+        const lockedChats = JSON.parse(localStorage.getItem('lockedChats') || '{}');
+        if (lockedChats[chat.id] === unlockPin) {
+            setIsLocked(false);
+        } else {
+            alert("Senha incorreta");
+        }
+    };
     const [isPulling, setIsPulling] = React.useState(false);
     const [pullProgress, setPullProgress] = React.useState(0);
     const [showScrollBottom, setShowScrollBottom] = React.useState(false);
@@ -731,6 +749,27 @@ function ChatRoom({ user, chat }) {
                     <button className="w-full text-left px-4 py-3 text-sm font-bold flex items-center gap-3 border-t border-gray-200/20 hover:bg-gray-100/10" onClick={(e) => { e.stopPropagation(); setReplyingTo(contextMenu.msg); setContextMenu(null); }}>
                         <div className="icon-corner-up-left text-lg text-indigo-500"></div> Responder
                     </button>
+                    <button className="w-full text-left px-4 py-3 text-sm font-bold flex items-center gap-3 border-t border-gray-200/20 hover:bg-gray-100/10 text-red-600" onClick={(e) => { 
+                        e.stopPropagation(); 
+                        const reason = prompt("Motivo da denúncia:");
+                        if (reason && db) {
+                            db.ref('reports').push({ type: 'message', message: contextMenu.msg, reason, reportedBy: user.id, timestamp: Date.now() });
+                            showToast("Mensagem denunciada", "success");
+                        }
+                        setContextMenu(null); 
+                    }}>
+                        <div className="icon-flag text-lg"></div> Denunciar
+                    </button>
+                </div>
+            )}
+
+            {isLocked && (
+                <div className="fixed inset-0 bg-gray-900 z-[200] flex flex-col items-center justify-center p-4">
+                    <div className="icon-lock text-6xl text-white mb-6"></div>
+                    <h2 className="text-2xl text-white font-bold mb-4">Conversa Bloqueada</h2>
+                    <input type="password" value={unlockPin} onChange={e => setUnlockPin(e.target.value)} placeholder="Senha (PIN)" className="p-3 rounded-xl w-full max-w-xs text-center font-bold tracking-[0.5em] mb-4 text-gray-800" />
+                    <button onClick={handleUnlock} className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl w-full max-w-xs">Desbloquear</button>
+                    <button onClick={() => window.location.href='index.html'} className="mt-4 text-gray-400">Voltar</button>
                 </div>
             )}
 

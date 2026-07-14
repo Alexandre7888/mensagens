@@ -10,6 +10,7 @@ function SocialNetwork({ user, onClose }) {
     
     // Novas funcionalidades
     const [activeVideoFeed, setActiveVideoFeed] = React.useState(null); // null or starting index
+    const [showVideoComments, setShowVideoComments] = React.useState(null);
     const [searchQuery, setSearchQuery] = React.useState('');
     const [showShareModal, setShowShareModal] = React.useState(false);
     const [postToShare, setPostToShare] = React.useState(null);
@@ -1139,8 +1140,11 @@ function SocialNetwork({ user, onClose }) {
                                 
                                 {/* Overlay Invisível para Pausar se o vídeo não pegar o clique */}
                                 <div 
-                                    className="absolute inset-0 z-0 cursor-pointer flex items-center justify-center" 
+                                    className="absolute inset-0 z-10 cursor-pointer flex items-center justify-center" 
                                     onClick={(e) => {
+                                        // Apenas executa se não for originado do controle remoto da TV
+                                        if (e.detail === 0 && e.clientX === 0 && e.clientY === 0) return;
+                                        
                                         e.preventDefault();
                                         e.stopPropagation();
                                         const vid = document.getElementById(`tiktok-video-${index}`);
@@ -1167,10 +1171,10 @@ function SocialNetwork({ user, onClose }) {
                                 `}} />
 
                                 {/* Overlay UI */}
-                                <div className="absolute inset-0 max-w-md mx-auto pointer-events-none flex flex-col justify-end p-4 pb-8 bg-gradient-to-t from-black/80 via-transparent to-transparent z-10">
-                                    <div className="flex items-end justify-between pointer-events-auto">
+                                <div className="absolute inset-0 max-w-md mx-auto pointer-events-none flex flex-col justify-end p-4 pb-8 bg-gradient-to-t from-black/80 via-transparent to-transparent z-20">
+                                    <div className="flex items-end justify-between w-full">
                                         {/* Info area */}
-                                        <div className="flex-1 pr-14 text-white">
+                                        <div className="flex-1 pr-14 text-white pointer-events-auto">
                                             <h3 className="font-bold text-lg hover:underline cursor-pointer" onClick={() => { window.location.href = `channel.html?uid=${vPost.authorId}`; }}>@{vPost.authorName.replace(/\s/g, '').toLowerCase()}</h3>
                                             <p className="text-sm mt-2 font-medium">{vPost.title}</p>
                                             <div className="text-sm mt-1 text-gray-200 line-clamp-3">
@@ -1184,7 +1188,7 @@ function SocialNetwork({ user, onClose }) {
                                         </div>
 
                                         {/* Actions Side */}
-                                        <div className="flex flex-col items-center gap-5 pb-2">
+                                        <div className="flex flex-col items-center gap-5 pb-2 pointer-events-auto">
                                             <div className="relative">
                                                 <img src={vPost.authorAvatar || 'https://via.placeholder.com/150'} className="w-12 h-12 rounded-full border-2 border-white object-cover cursor-pointer" onClick={() => { window.location.href = `channel.html?uid=${vPost.authorId}`; }}/>
                                                 {vPost.authorId !== user.id && !following[vPost.authorId] && (
@@ -1202,10 +1206,7 @@ function SocialNetwork({ user, onClose }) {
                                             </button>
                                             
                                             <button onClick={() => {
-                                                // Abre os comentários (simplificado aqui para não quebrar o layout, ideal seria um bottom sheet)
-                                                setActiveVideoFeed(null);
-                                                setActiveCommentPost(vPost.id);
-                                                // scroll to post would go here
+                                                setShowVideoComments(vPost);
                                             }} className="flex flex-col items-center gap-1 group">
                                                 <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center group-hover:bg-black/60 transition text-white">
                                                     <div className="icon-message-circle text-2xl"></div>
@@ -1319,6 +1320,128 @@ function SocialNetwork({ user, onClose }) {
                             );
                         })}
                     </div>
+
+                    {/* Overlay de Comentários do Vídeo (Bottom Sheet) */}
+                    {showVideoComments && (
+                        <div className="absolute inset-0 z-[200] flex flex-col justify-end pointer-events-auto">
+                            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowVideoComments(null)}></div>
+                            <div className="relative bg-gray-900 w-full h-[60vh] rounded-t-2xl flex flex-col shadow-2xl border-t border-gray-800 animate-fade-in-up">
+                                <div className="p-4 border-b border-gray-800 flex justify-between items-center shrink-0">
+                                    <h3 className="font-bold text-white">Comentários ({showVideoComments.commentsCount})</h3>
+                                    <button onClick={() => setShowVideoComments(null)} className="text-gray-400 hover:text-white p-1">
+                                        <div className="icon-x text-xl"></div>
+                                    </button>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                                    {showVideoComments.comments && Object.keys(showVideoComments.comments).length > 0 ? (
+                                        Object.keys(showVideoComments.comments).map(cId => {
+                                            const comment = showVideoComments.comments[cId];
+                                            return (
+                                                <div key={cId} className="flex gap-3">
+                                                    {comment.authorAvatar ? (
+                                                        <img src={comment.authorAvatar} className="w-8 h-8 rounded-full object-cover shrink-0" />
+                                                    ) : (
+                                                        <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold text-white shrink-0">
+                                                            {(comment.authorName || '?').charAt(0)}
+                                                        </div>
+                                                    )}
+                                                    <div className="flex-1">
+                                                        <div className="flex justify-between items-start">
+                                                            <span className="font-bold text-sm text-gray-300">{comment.authorName}</span>
+                                                            {(comment.authorId === user.id || showVideoComments.authorId === user.id) && (
+                                                                <button onClick={async () => {
+                                                                    if (window.confirm("Apagar este comentário?")) {
+                                                                        await window.firebaseDB.ref(`posts/${showVideoComments.id}/comments/${cId}`).remove();
+                                                                        // Update local state to reflect deletion immediately
+                                                                        const updatedPost = {...showVideoComments};
+                                                                        delete updatedPost.comments[cId];
+                                                                        updatedPost.commentsCount = Object.keys(updatedPost.comments).length;
+                                                                        setShowVideoComments(updatedPost);
+                                                                    }
+                                                                }} className="text-gray-500 hover:text-red-500 text-xs">
+                                                                    <div className="icon-trash"></div>
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-sm text-gray-100 mt-1">{comment.text}</p>
+                                                        <span className="text-[10px] text-gray-500 mt-1 block">{getRelativeTime(comment.timestamp)}</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
+                                    ) : (
+                                        <p className="text-center text-gray-500 text-sm mt-8">Nenhum comentário ainda. Seja o primeiro a comentar!</p>
+                                    )}
+                                </div>
+                                <div className="p-4 border-t border-gray-800 shrink-0 bg-gray-900 pb-8">
+                                    <div className="flex gap-2">
+                                        <input 
+                                            type="text" 
+                                            value={commentText}
+                                            onChange={(e) => setCommentText(e.target.value)}
+                                            placeholder="Adicionar comentário..."
+                                            className="flex-1 rounded-full px-4 py-2.5 text-sm outline-none bg-gray-800 text-white border border-gray-700 focus:border-indigo-500"
+                                            onKeyDown={async (e) => {
+                                                if (e.key === 'Enter' && commentText.trim()) {
+                                                    const db = window.firebaseDB;
+                                                    const newRef = await db.ref(`posts/${showVideoComments.id}/comments`).push({
+                                                        authorId: user.id,
+                                                        authorName: user.name,
+                                                        authorAvatar: user.avatar || '',
+                                                        text: commentText.trim(),
+                                                        timestamp: Date.now()
+                                                    });
+                                                    setCommentText('');
+                                                    // O listener global vai atualizar o post, mas podemos atualizar o local para ser instantâneo
+                                                    const updatedPost = {...showVideoComments};
+                                                    if (!updatedPost.comments) updatedPost.comments = {};
+                                                    updatedPost.comments[newRef.key] = {
+                                                        authorId: user.id,
+                                                        authorName: user.name,
+                                                        authorAvatar: user.avatar || '',
+                                                        text: commentText.trim(),
+                                                        timestamp: Date.now()
+                                                    };
+                                                    updatedPost.commentsCount = Object.keys(updatedPost.comments).length;
+                                                    setShowVideoComments(updatedPost);
+                                                }
+                                            }}
+                                        />
+                                        <button 
+                                            onClick={async () => {
+                                                if(commentText.trim()) {
+                                                    const db = window.firebaseDB;
+                                                    const newRef = await db.ref(`posts/${showVideoComments.id}/comments`).push({
+                                                        authorId: user.id,
+                                                        authorName: user.name,
+                                                        authorAvatar: user.avatar || '',
+                                                        text: commentText.trim(),
+                                                        timestamp: Date.now()
+                                                    });
+                                                    setCommentText('');
+                                                    const updatedPost = {...showVideoComments};
+                                                    if (!updatedPost.comments) updatedPost.comments = {};
+                                                    updatedPost.comments[newRef.key] = {
+                                                        authorId: user.id,
+                                                        authorName: user.name,
+                                                        authorAvatar: user.avatar || '',
+                                                        text: commentText.trim(),
+                                                        timestamp: Date.now()
+                                                    };
+                                                    updatedPost.commentsCount = Object.keys(updatedPost.comments).length;
+                                                    setShowVideoComments(updatedPost);
+                                                }
+                                            }}
+                                            disabled={!commentText.trim()}
+                                            className="bg-indigo-600 text-white p-2.5 rounded-full disabled:opacity-50 hover:bg-indigo-700"
+                                        >
+                                            <div className="icon-send text-sm"></div>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 

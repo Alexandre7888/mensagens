@@ -41,6 +41,8 @@ function SettingsMenu({ isOpen, onClose }) {
         window.SettingsManager.saveSettings(newSettings);
     };
 
+    const [showDeviceManager, setShowDeviceManager] = React.useState(false);
+
     const tabs = [
         { id: 'geral', label: 'Geral', icon: 'smartphone' },
         { id: 'privacidade', label: 'Privacidade', icon: 'shield' },
@@ -48,6 +50,10 @@ function SettingsMenu({ isOpen, onClose }) {
     ];
 
     if (!isOpen) return null;
+
+    if (showDeviceManager) {
+        return <window.DeviceManager onClose={() => setShowDeviceManager(false)} />;
+    }
 
     const renderTabContent = () => {
         switch (activeTab) {
@@ -66,6 +72,27 @@ function SettingsMenu({ isOpen, onClose }) {
                                     Instalar App
                                 </button>
                             )}
+                        </div>
+
+                        <div>
+                            <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Dispositivos</h3>
+                            <div className="bg-gray-50 p-4 rounded-xl">
+                                <button 
+                                    onClick={() => setShowDeviceManager(true)}
+                                    className="w-full flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg hover:bg-indigo-50 hover:border-indigo-200 transition-colors group"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600">
+                                            <div className="icon-tv text-xl"></div>
+                                        </div>
+                                        <div className="text-left">
+                                            <h4 className="font-bold text-gray-800 group-hover:text-indigo-700">Dispositivos Conectados</h4>
+                                            <p className="text-xs text-gray-500">Conectar TV (Phantora TV)</p>
+                                        </div>
+                                    </div>
+                                    <div className="icon-chevron-right text-gray-400"></div>
+                                </button>
+                            </div>
                         </div>
 
                         <div>

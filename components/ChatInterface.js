@@ -98,10 +98,24 @@ function ChatInterface({ user, onLogout }) {
         db.ref('users').on('value', snap => {
             const val = snap.val();
             if(val) {
+                const blockedUsers = JSON.parse(localStorage.getItem('blockedUsers') || '[]');
                 setAllUsersData(val);
                 const now = Date.now();
-                const usersList = Object.keys(val).map(k => ({...val[k], id: k})).filter(u => u.id !== user.id && u.isFeatured && u.featuredUntil > now);
+                const usersList = Object.keys(val).map(k => ({...val[k], id: k})).filter(u => u.id !== user.id && u.isFeatured && u.featuredUntil > now && !blockedUsers.includes(u.id));
                 setSuggestions(usersList);
+            }
+        });
+
+        // Ver transferências de posse
+        db.ref(`ownership_transfers/${user.id}`).on('value', snap => {
+            const transfer = snap.val();
+            if (transfer && confirm(`Você foi convidado para ser o DONO do grupo ${transfer.groupId}. Aceitar?`)) {
+                db.ref(`groups/${transfer.groupId}/cargos/dono`).set(user.id);
+                db.ref(`groups/${transfer.groupId}/members/${transfer.fromId}`).remove();
+                db.ref(`users/${transfer.fromId}/chats/${transfer.groupId}`).remove();
+                db.ref(`ownership_transfers/${user.id}`).remove();
+            } else if (transfer) {
+                db.ref(`ownership_transfers/${user.id}`).remove();
             }
         });
 
@@ -572,7 +586,8 @@ function ChatInterface({ user, onLogout }) {
                                         <div key={chat.id} onClick={() => {
                                             if (chat.type === 'community') window.location.href = `community.html?commId=${chat.id}`;
                                             else window.location.href = `chat.html?chatId=${chat.id}`;
-                                        }} className="p-3 mx-2 my-1 bg-white rounded-xl border border-gray-100 cursor-pointer hover:bg-indigo-50 flex items-center gap-4 transition-all group shadow-sm">
+                                        }} className="p-3 mx-2 my-1 bg-white rounded-xl border border-gray-100 cursor-pointer hover:bg-indigo-50 flex items-center gap-4 transition-all group shadow-sm relative">
+                                            {JSON.parse(localStorage.getItem('lockedChats') || '{}')[chat.id] && <div className="absolute right-4 top-1/2 -translate-y-1/2 icon-lock text-gray-400"></div>}
                                             <div className="relative cursor-pointer hover:scale-105 transition-transform" onClick={(e) => { e.stopPropagation(); setQuickActionChat(chat); }}>
                                                 {chat.type === 'community' ? (
                                                     <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-800 flex items-center justify-center text-white shadow-sm flex-shrink-0">
@@ -828,6 +843,17 @@ function ChatInterface({ user, onLogout }) {
                         <button onClick={() => { setShowSettingsMenu(true); setContextMenu(null); }} className="w-full text-left px-4 py-2.5 hover:bg-indigo-50 flex items-center gap-3 text-gray-700 font-medium transition-colors">
                             <div className="icon-settings text-gray-500 text-lg"></div> Configurações Avançadas
                         </button>
+                        <button onClick={async () => { 
+                            const pin = prompt("Defina um PIN de segurança para bloquear este chat:");
+                            if(pin && contextMenu && contextMenu.type !== 'mainMenu') {
+                                // Fallback se fosse em um chat
+                            } else {
+                                alert("Abra o chat e use a opção de trancar, ou clique em um chat recente");
+                            }
+                            setContextMenu(null);
+                        }} className="w-full text-left px-4 py-2.5 hover:bg-indigo-50 flex items-center gap-3 text-gray-700 font-medium transition-colors">
+                            <div className="icon-lock text-gray-500 text-lg"></div> Bloquear Chat com Senha
+                        </button>
                         <button onClick={onLogout} className="w-full text-left px-4 py-2.5 hover:bg-red-50 flex items-center gap-3 text-red-600 font-medium transition-colors">
                             <div className="icon-log-out text-lg"></div> Sair
                         </button>
@@ -1036,6 +1062,17 @@ function ChatInterface({ user, onLogout }) {
                             </button>
                             {quickActionChat.type !== 'community' && (
                                 <>
+                                    <button onClick={() => {
+                                        const pin = prompt("Defina um PIN para bloquear este chat:");
+                                        if(pin) {
+                                            const locked = JSON.parse(localStorage.getItem('lockedChats') || '{}');
+                                            locked[quickActionChat.id] = pin;
+                                            localStorage.setItem('lockedChats', JSON.stringify(locked));
+                                            setQuickActionChat(null);
+                                        }
+                                    }} className="w-12 h-12 flex items-center justify-center rounded-full hover:bg-indigo-50 text-indigo-600 transition-colors" title="Bloquear com Senha">
+                                        <div className="icon-lock text-2xl"></div>
+                                    </button>
                                     <button onClick={() => startCallForChat(quickActionChat, false)} className="w-12 h-12 flex items-center justify-center rounded-full hover:bg-indigo-50 text-indigo-600 transition-colors" title="Chamada de Voz">
                                         <div className="icon-phone text-2xl"></div>
                                     </button>
