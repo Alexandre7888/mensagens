@@ -512,28 +512,33 @@ function TVApp() {
         const isFullScreenMode = activeChat !== null || activeVideoFeed !== null;
 
         return (
-            <div className="flex h-screen bg-gray-900 text-white overflow-hidden pt-[10vh]">
+            <div className="flex h-screen bg-gray-900 text-white overflow-hidden p-6 gap-6">
                 {/* Sidebar */}
                 {!isFullScreenMode && (
-                    <div className="w-80 bg-gray-800 p-6 flex flex-col border-r border-t border-gray-700 rounded-tr-3xl z-10 shrink-0">
-                        <div className="flex items-center gap-4 mb-8">
-                            {selectedAccount?.foto ? <img src={selectedAccount.foto} className="w-12 h-12 rounded-full object-cover bg-gray-700" /> : <div className="w-12 h-12 rounded-full bg-indigo-600 flex items-center justify-center text-xl font-bold">{(selectedAccount?.nome || '?').charAt(0).toUpperCase()}</div>}
-                            <h2 className="text-xl font-bold truncate">{selectedAccount?.nome}</h2>
+                    <div className="w-64 bg-gray-800 p-5 flex flex-col border border-gray-700 rounded-3xl z-10 shrink-0 shadow-2xl">
+                        <div className="flex items-center gap-3 mb-6 bg-gray-900/50 p-3 rounded-2xl border border-gray-700/50">
+                            {selectedAccount?.foto ? <img src={selectedAccount.foto} className="w-10 h-10 rounded-full object-cover bg-gray-700 border border-gray-600" /> : <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-lg font-bold">{(selectedAccount?.nome || '?').charAt(0).toUpperCase()}</div>}
+                            <h2 className="text-lg font-bold truncate text-gray-200">{selectedAccount?.nome}</h2>
                         </div>
-                        <button className={`tv-focusable text-left p-4 rounded-xl mb-2 flex items-center gap-3 transition-colors ${currentTab === 'chats' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`} onClick={() => { setActiveChat(null); setActiveVideoFeed(null); setCurrentTab('chats'); }}>
-                            <div className="icon-message-circle"></div> Chats
-                        </button>
-                        <button className={`tv-focusable text-left p-4 rounded-xl mb-2 flex items-center gap-3 transition-colors ${currentTab === 'social' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`} onClick={() => { setActiveChat(null); setCurrentTab('social'); if(posts.length>0) setActiveVideoFeed(0); }}>
-                            <div className="icon-layout-grid"></div> Rede Social
-                        </button>
+                        <div className="space-y-3">
+                            <button className={`tv-focusable w-full text-left p-4 rounded-xl flex items-center gap-4 transition-colors font-semibold ${currentTab === 'chats' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'text-gray-400 hover:bg-gray-700 hover:text-white'}`} onClick={() => { setActiveChat(null); setActiveVideoFeed(null); setCurrentTab('chats'); }}>
+                                <div className="icon-message-circle text-xl"></div> 
+                                <span>Chats</span>
+                            </button>
+                            <button className={`tv-focusable w-full text-left p-4 rounded-xl flex items-center gap-4 transition-colors font-semibold ${currentTab === 'social' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'text-gray-400 hover:bg-gray-700 hover:text-white'}`} onClick={() => { setActiveChat(null); setCurrentTab('social'); if(posts.length>0) setActiveVideoFeed(0); }}>
+                                <div className="icon-layout-grid text-xl"></div> 
+                                <span>Rede Social</span>
+                            </button>
+                        </div>
                         <div className="flex-1"></div>
-                        <button className="tv-focusable text-left p-4 rounded-xl flex items-center gap-3 text-red-400 hover:bg-gray-700 transition-colors" onClick={handleBack}>
-                            <div className="icon-log-out"></div> Trocar Conta
+                        <button className="tv-focusable w-full text-left p-4 rounded-xl flex items-center gap-4 text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors font-semibold" onClick={handleBack}>
+                            <div className="icon-log-out text-xl"></div> 
+                            <span>Trocar Conta</span>
                         </button>
                     </div>
                 )}
                 
-                <div className="flex-1 flex flex-col relative overflow-hidden bg-gray-900 border-t border-gray-700 rounded-tl-3xl">
+                <div className={`flex-1 flex flex-col relative overflow-hidden bg-gray-900 ${!isFullScreenMode ? 'border border-gray-700 rounded-3xl shadow-2xl' : ''}`}>
                     
                     {/* Chat Area */}
                     {activeChat ? (
@@ -719,13 +724,13 @@ function TVApp() {
                         </div>
                     ) : (
                         /* Normal Tab Views */
-                        <div className="flex-1 p-10 overflow-y-auto">
+                        <div className="flex-1 p-8 overflow-y-auto">
                             {currentTab === 'chats' && (
                                 <>
-                                    <h1 className="text-4xl font-bold mb-8 flex items-center gap-4">
+                                    <h1 className="text-3xl font-bold mb-6 flex items-center gap-3 text-gray-100">
                                         <div className="icon-message-circle text-indigo-500"></div> Minhas Conversas
                                     </h1>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                                         {chats.map(chat => {
                                             // Fallback para avatar caso não tenha usersData completo
                                             const chatAvatar = chat.type === 'community' ? null : (chat.avatar || 'https://via.placeholder.com/150');
