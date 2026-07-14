@@ -487,8 +487,8 @@ function TVApp() {
     if (appState === 'auth') {
         return (
             <div className="flex h-screen items-center justify-center bg-gray-900 p-8 text-white">
-                <div className="flex bg-gray-800 rounded-3xl overflow-hidden shadow-2xl max-w-4xl w-full relative mt-[10vh]">
-                    <div className="w-1/2 p-12 flex flex-col justify-center">
+                <div className="flex bg-gray-800 rounded-3xl overflow-hidden shadow-2xl max-w-4xl w-full relative mt-[500px]">
+                    <div style={{"paddingTop":"48px","paddingRight":"48px","paddingBottom":"48px","paddingLeft":"48px","marginTop":"0px","marginRight":"0px","marginBottom":"0px","marginLeft":"0px","fontSize":"1","color":"rgb(255, 255, 255)","backgroundColor":"rgba(0, 0, 0, 0)","textAlign":"start","fontWeight":"400","objectFit":"fill","display":"flex","position":"static","top":"auto","left":"auto","right":"auto","bottom":"auto"}} className="w-1/2 p-12 flex flex-col justify-center">
                         <div className="icon-tv text-6xl text-indigo-500 mb-6"></div>
                         <h1 className="text-4xl font-bold mb-4">Adicionar Conta</h1>
                         <p className="text-gray-400 text-lg mb-8">Abra o Phantora no celular, vá em Configurações &gt; Dispositivos Conectados e escaneie o código QR.</p>
