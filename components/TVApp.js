@@ -357,13 +357,23 @@ function TVApp() {
     };
 
     const selectAccount = async (acc) => {
+        setAppState('loading');
         if (window.firebaseDB) {
-            const fbUserSnap = await window.firebaseDB.ref(`users/${acc.uid}`).once('value');
-            const fbUser = fbUserSnap.val();
-            if (fbUser && fbUser.profilePicture && fbUser.profilePicture !== acc.foto) {
-                const updatedAcc = { ...acc, foto: fbUser.profilePicture, nome: fbUser.name || acc.nome };
-                setSelectedAccount(updatedAcc);
-            } else {
+            // Otimização Extrema: Busca apenas a foto e o nome para não baixar a árvore inteira do usuário
+            try {
+                const fbNameSnap = await window.firebaseDB.ref(`users/${acc.uid}/name`).once('value');
+                const fbPicSnap = await window.firebaseDB.ref(`users/${acc.uid}/profilePicture`).once('value');
+                
+                const name = fbNameSnap.val();
+                const pic = fbPicSnap.val();
+                
+                if (pic && pic !== acc.foto) {
+                    const updatedAcc = { ...acc, foto: pic, nome: name || acc.nome };
+                    setSelectedAccount(updatedAcc);
+                } else {
+                    setSelectedAccount({ ...acc, nome: name || acc.nome });
+                }
+            } catch (e) {
                 setSelectedAccount(acc);
             }
         } else {
@@ -481,52 +491,21 @@ function TVApp() {
     };
 
     if (appState === 'loading') {
-        return <div className="flex h-screen items-center justify-center bg-gray-900 text-white"><div className="icon-loader animate-spin text-4xl text-indigo-500"></div></div>;
+        return window.TVLoading ? <window.TVLoading /> : null;
     }
 
     if (appState === 'auth') {
-        return (
-            <div className="flex h-screen items-center justify-center bg-gray-900 p-8 text-white">
-                <div className="flex bg-gray-800 rounded-3xl overflow-hidden shadow-2xl max-w-4xl w-full relative mt-[500px]">
-                    <div style={{"paddingTop":"48px","paddingRight":"48px","paddingBottom":"48px","paddingLeft":"48px","marginTop":"0px","marginRight":"0px","marginBottom":"0px","marginLeft":"0px","fontSize":"1","color":"rgb(255, 255, 255)","backgroundColor":"rgba(0, 0, 0, 0)","textAlign":"start","fontWeight":"400","objectFit":"fill","display":"flex","position":"static","top":"auto","left":"auto","right":"auto","bottom":"auto"}} className="w-1/2 p-12 flex flex-col justify-center">
-                        <div className="icon-tv text-6xl text-indigo-500 mb-6"></div>
-                        <h1 className="text-4xl font-bold mb-4">Adicionar Conta</h1>
-                        <p className="text-gray-400 text-lg mb-8">Abra o Phantora no celular, vá em Configurações &gt; Dispositivos Conectados e escaneie o código QR.</p>
-                        <div className="text-sm text-gray-500 font-mono bg-gray-900 p-3 rounded-lg inline-block self-start">ID: {deviceId}</div>
-                    </div>
-                    <div className="w-1/2 bg-gray-950 flex flex-col items-center justify-center p-12">
-                        <div className="bg-gray-900 p-4 rounded-2xl border-4 border-indigo-500 shadow-[0_0_30px_rgba(99,102,241,0.3)]">
-                            <div className="bg-white p-4 rounded-xl">
-                                {deviceId && <img src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(`https://app.mensagens.site.je/?tvAuthId=${deviceId}`)}`} className="w-48 h-48 object-contain" />}
-                            </div>
-                        </div>
-                        <p className="mt-8 text-indigo-400 font-semibold animate-pulse">Aguardando conexão...</p>
-                    </div>
-                </div>
-            </div>
-        );
+        return window.TVAuth ? <window.TVAuth deviceId={deviceId} /> : null;
     }
 
     if (appState === 'account_select') {
-        return (
-            <div className="flex h-screen flex-col items-center justify-start pt-[30vh] bg-gray-900 text-white">
-                <h1 className="text-5xl font-bold mb-12">Quem está assistindo?</h1>
-                <div className="flex flex-wrap gap-8 justify-center max-w-5xl">
-                    {accounts.map((acc) => (
-                        <div key={acc.uid} className="tv-focusable flex flex-col items-center gap-4 p-4 rounded-2xl cursor-pointer transition-transform" onClick={() => selectAccount(acc)}>
-                            {acc.foto ? <img src={acc.foto} className="w-32 h-32 rounded-full object-cover border-4 border-transparent bg-gray-800" /> : <div className="w-32 h-32 rounded-full bg-indigo-600 flex items-center justify-center border-4 border-transparent text-5xl font-bold">{(acc.nome || '?').charAt(0).toUpperCase()}</div>}
-                            <span className="text-2xl font-semibold">{acc.nome}</span>
-                        </div>
-                    ))}
-                    {accounts.length < 5 && (
-                        <div className="tv-focusable flex flex-col items-center gap-4 p-4 rounded-2xl cursor-pointer transition-transform" onClick={() => { listenForAuth(deviceId); navigateTo('auth'); }}>
-                            <div className="w-32 h-32 rounded-full bg-gray-800 flex items-center justify-center border-4 border-transparent"><div className="icon-plus text-5xl text-gray-400"></div></div>
-                            <span className="text-2xl font-semibold text-gray-400">Adicionar</span>
-                        </div>
-                    )}
-                </div>
-            </div>
-        );
+        return window.TVAccountSelect ? <window.TVAccountSelect 
+            accounts={accounts} 
+            selectAccount={selectAccount} 
+            listenForAuth={listenForAuth} 
+            deviceId={deviceId} 
+            navigateTo={navigateTo} 
+        /> : null;
     }
 
     if (appState === 'main') {
