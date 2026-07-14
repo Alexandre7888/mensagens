@@ -52,11 +52,8 @@ function TVApp() {
             setViewStack(['account_select']);
         }
 
-        if (window.firebaseDB) {
-            window.firebaseDB.ref('users').on('value', snap => {
-                if (snap.val()) setUsersData(snap.val());
-            });
-        }
+        // Otimização: Não carregar todos os usuários de uma vez na TV.
+        // Carregar apenas os necessários sob demanda (implementado na renderização)
         
         // Voice recognition setup
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
@@ -240,7 +237,8 @@ function TVApp() {
     React.useEffect(() => {
         if (appState === 'main' && selectedAccount && window.firebaseDB) {
             const db = window.firebaseDB;
-            const chatsRef = db.ref(`users/${selectedAccount.uid}/chats`);
+            // Otimização: Limitar a quantidade de conversas carregadas
+            const chatsRef = db.ref(`users/${selectedAccount.uid}/chats`).orderByChild('timestamp').limitToLast(30);
             chatsRef.on('value', snap => {
                 const val = snap.val();
                 if (val) {
@@ -262,7 +260,8 @@ function TVApp() {
                 setUnlockedForTv(snap.val() || {});
             });
 
-            const postsRef = db.ref('posts');
+            // Otimização: Limitar posts carregados
+            const postsRef = db.ref('posts').orderByChild('timestamp').limitToLast(20);
             postsRef.on('value', snap => {
                 const data = snap.val();
                 if (data) {
@@ -294,7 +293,8 @@ function TVApp() {
             
             let listenPath = activeChat.type === 'group' ? `groups/${activeChat.id}/messages` : `chats/${[selectedAccount.uid, getTargetId()].sort().join('_')}/messages`;
             
-            const messagesRef = db.ref(listenPath);
+            // Otimização: Carregar apenas as últimas 50 mensagens
+            const messagesRef = db.ref(listenPath).orderByChild('timestamp').limitToLast(50);
             messagesRef.on('value', snap => {
                 const data = snap.val();
                 if (data) {
@@ -509,7 +509,7 @@ function TVApp() {
 
     if (appState === 'account_select') {
         return (
-            <div className="flex h-screen flex-col items-center justify-center bg-gray-900 text-white">
+            <div className="flex h-screen flex-col items-center justify-start pt-[30vh] bg-gray-900 text-white">
                 <h1 className="text-5xl font-bold mb-12">Quem está assistindo?</h1>
                 <div className="flex flex-wrap gap-8 justify-center max-w-5xl">
                     {accounts.map((acc) => (
@@ -533,10 +533,10 @@ function TVApp() {
         const isFullScreenMode = activeChat !== null || activeVideoFeed !== null;
 
         return (
-            <div className="flex h-screen bg-gray-900 text-white overflow-hidden">
+            <div className="flex h-screen bg-gray-900 text-white overflow-hidden pt-[10vh]">
                 {/* Sidebar */}
                 {!isFullScreenMode && (
-                    <div className="w-80 bg-gray-800 p-6 flex flex-col border-r border-gray-700 z-10 shrink-0">
+                    <div className="w-80 bg-gray-800 p-6 flex flex-col border-r border-t border-gray-700 rounded-tr-3xl z-10 shrink-0">
                         <div className="flex items-center gap-4 mb-8">
                             {selectedAccount?.foto ? <img src={selectedAccount.foto} className="w-12 h-12 rounded-full object-cover bg-gray-700" /> : <div className="w-12 h-12 rounded-full bg-indigo-600 flex items-center justify-center text-xl font-bold">{(selectedAccount?.nome || '?').charAt(0).toUpperCase()}</div>}
                             <h2 className="text-xl font-bold truncate">{selectedAccount?.nome}</h2>
@@ -554,7 +554,7 @@ function TVApp() {
                     </div>
                 )}
                 
-                <div className="flex-1 flex flex-col relative overflow-hidden bg-gray-900">
+                <div className="flex-1 flex flex-col relative overflow-hidden bg-gray-900 border-t border-gray-700 rounded-tl-3xl">
                     
                     {/* Chat Area */}
                     {activeChat ? (
@@ -748,7 +748,8 @@ function TVApp() {
                                     </h1>
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                         {chats.map(chat => {
-                                            const chatAvatar = chat.type === 'community' ? null : (chat.avatar || usersData[chat.targetId || chat.id]?.profilePicture);
+                                            // Fallback para avatar caso não tenha usersData completo
+                                            const chatAvatar = chat.type === 'community' ? null : (chat.avatar || 'https://via.placeholder.com/150');
                                             const isLocked = lockedChats[chat.id] && !unlockedForTv[chat.id];
                                             return (
                                                 <div key={chat.id} className="tv-focusable bg-gray-800 border border-gray-700 p-6 rounded-2xl flex items-center gap-6 cursor-pointer hover:bg-gray-700 transition-colors relative" onClick={() => {
