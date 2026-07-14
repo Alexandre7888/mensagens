@@ -17,6 +17,7 @@ function TVApp() {
     const [authRequest, setAuthRequest] = React.useState(null);
     const [showUnlockModal, setShowUnlockModal] = React.useState(null);
     const [alwaysAllow, setAlwaysAllow] = React.useState(false);
+    const [scale, setScale] = React.useState(1);
     
     const [textInput, setTextInput] = React.useState('');
     const [isRecording, setIsRecording] = React.useState(false);
@@ -56,6 +57,23 @@ function TVApp() {
         // Carregar apenas os necessários sob demanda (implementado na renderização)
         
         // Voice recognition setup
+        const handleResize = () => {
+            // Base resolution for TV (1920x1080)
+            const baseWidth = 1920;
+            const baseHeight = 1080;
+            const currentWidth = window.innerWidth;
+            const currentHeight = window.innerHeight;
+            
+            const scaleX = currentWidth / baseWidth;
+            const scaleY = currentHeight / baseHeight;
+            
+            // Use the smaller scale to ensure it fits completely within the screen
+            setScale(Math.min(scaleX, scaleY));
+        };
+
+        window.addEventListener('resize', handleResize);
+        handleResize(); // Initial call
+
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             recognitionRef.current = new SpeechRecognition();
@@ -80,6 +98,8 @@ function TVApp() {
                 if (isVoiceToText) setIsVoiceToText(false);
             };
         }
+
+        return () => window.removeEventListener('resize', handleResize);
     }, []);
 
     // Controle Remoto
@@ -512,10 +532,23 @@ function TVApp() {
         const isFullScreenMode = activeChat !== null || activeVideoFeed !== null;
 
         return (
-            <div className="flex h-screen bg-gray-900 text-white overflow-hidden p-12 md:p-20 gap-8">
+            <div className="fixed inset-0 bg-[#0f172a] flex items-center justify-center overflow-hidden">
+                <div 
+                    className="flex text-white overflow-hidden origin-center absolute"
+                    style={{ 
+                        width: '1920px', 
+                        height: '1080px',
+                        transform: `scale(${scale})`,
+                        top: '50%',
+                        left: '50%',
+                        marginTop: '-540px',
+                        marginLeft: '-960px',
+                    }}
+                >
+                <div className="w-full h-full flex gap-12 p-16 pt-[100px] pb-16 px-[100px] bg-transparent">
                 {/* Sidebar */}
                 {!isFullScreenMode && (
-                    <div className="w-72 bg-gray-800 p-6 flex flex-col border border-gray-700 rounded-3xl z-10 shrink-0 shadow-2xl">
+                    <div className="w-80 bg-gray-800/90 backdrop-blur-md p-8 flex flex-col border border-gray-700/50 rounded-[2rem] z-10 shrink-0 shadow-2xl">
                         <div className="flex items-center gap-3 mb-6 bg-gray-900/50 p-3 rounded-2xl border border-gray-700/50">
                             {selectedAccount?.foto ? <img src={selectedAccount.foto} className="w-10 h-10 rounded-full object-cover bg-gray-700 border border-gray-600" /> : <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-lg font-bold">{(selectedAccount?.nome || '?').charAt(0).toUpperCase()}</div>}
                             <h2 className="text-lg font-bold truncate text-gray-200">{selectedAccount?.nome}</h2>
@@ -538,12 +571,12 @@ function TVApp() {
                     </div>
                 )}
                 
-                <div className={`flex-1 flex flex-col relative overflow-hidden bg-gray-900 ${!isFullScreenMode ? 'border border-gray-700 rounded-3xl shadow-2xl' : ''}`}>
+                <div className={`flex-1 flex flex-col relative overflow-hidden bg-gray-900/95 backdrop-blur-md ${!isFullScreenMode ? 'border border-gray-700/50 rounded-[2rem] shadow-2xl' : 'rounded-3xl'}`}>
                     
                     {/* Chat Area */}
                     {activeChat ? (
                         <div className="flex flex-col h-full absolute inset-0 bg-gray-900 z-20">
-                            <div className="bg-gray-800 p-6 border-b border-gray-700 flex items-center gap-4 shrink-0 shadow-md">
+                            <div className="bg-gray-800/90 backdrop-blur p-6 border-b border-gray-700/50 flex items-center gap-4 shrink-0 shadow-md rounded-t-[2rem]">
                                 <button className="tv-focusable p-3 bg-gray-700 rounded-full hover:bg-gray-600" onClick={() => setActiveChat(null)}>
                                     <div className="icon-arrow-left text-xl"></div>
                                 </button>
@@ -575,7 +608,7 @@ function TVApp() {
                                 <div ref={messagesEndRef} />
                             </div>
 
-                            <div className="bg-gray-800 p-6 border-t border-gray-700 shrink-0 flex flex-col gap-4">
+                            <div className="bg-gray-800/90 backdrop-blur p-6 border-t border-gray-700/50 shrink-0 flex flex-col gap-4 rounded-b-[2rem]">
                                 <div className="flex items-center gap-4">
                                     <button 
                                         id="btn-record-audio"
@@ -609,7 +642,7 @@ function TVApp() {
                         <div className="absolute inset-0 bg-black z-20 flex">
                             <div 
                                 id="tv-video-player"
-                                className="tv-focusable flex-1 relative h-full cursor-pointer group"
+                                className="tv-focusable flex-1 relative h-full cursor-pointer group rounded-l-[2rem] overflow-hidden"
                                 onClick={() => {
                                     const vid = document.getElementById(`tv-video-${activeVideoFeed}`);
                                     if (vid) {
@@ -640,7 +673,7 @@ function TVApp() {
                             </div>
                             
                             {/* Actions Right Sidebar */}
-                            <div className="w-24 bg-black/50 backdrop-blur-md flex flex-col items-center justify-end py-12 gap-8 border-l border-white/10 z-30">
+                            <div className="w-28 bg-black/60 backdrop-blur-md flex flex-col items-center justify-end py-12 gap-8 border-l border-white/10 z-30 rounded-r-[2rem]">
                                 <div className="relative">
                                     <img src={posts[activeVideoFeed]?.authorAvatar || 'https://via.placeholder.com/150'} className="w-14 h-14 rounded-full border-2 border-white object-cover" />
                                 </div>
@@ -809,6 +842,8 @@ function TVApp() {
                             )}
                         </div>
                     )}
+                </div>
+                </div>
                 </div>
             </div>
         );
