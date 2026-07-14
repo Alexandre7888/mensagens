@@ -486,8 +486,8 @@ function TVApp() {
 
     if (appState === 'auth') {
         return (
-            <div className="flex h-screen items-center justify-center bg-gray-900 p-8 pt-24 text-white">
-                <div className="flex bg-gray-800 rounded-3xl overflow-hidden shadow-2xl max-w-4xl w-full relative mt-16">
+            <div className="flex h-screen items-center justify-center bg-gray-900 p-8 text-white">
+                <div className="flex bg-gray-800 rounded-3xl overflow-hidden shadow-2xl max-w-4xl w-full relative mt-[10vh]">
                     <div className="w-1/2 p-12 flex flex-col justify-center">
                         <div className="icon-tv text-6xl text-indigo-500 mb-6"></div>
                         <h1 className="text-4xl font-bold mb-4">Adicionar Conta</h1>
