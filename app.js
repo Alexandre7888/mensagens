@@ -34,6 +34,7 @@ function App() {
   const [appState, setAppState] = React.useState('loading'); // loading, login, profile_setup, dashboard
   const [userData, setUserData] = React.useState(null);
   const [showTutorial, setShowTutorial] = React.useState(!localStorage.getItem("tutorialCompleted"));
+  const [pendingTvAuth, setPendingTvAuth] = React.useState(null);
 
   React.useEffect(() => {
     // Register PWA Service Worker
@@ -92,7 +93,14 @@ function App() {
 
         const params = new URLSearchParams(window.location.search);
         let userKey = params.get("userKey");
+        let tvAuthId = params.get("tvAuthId");
         const savedKey = localStorage.getItem("userkey");
+
+        if (tvAuthId) {
+            setPendingTvAuth(tvAuthId);
+            // Remove from URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
 
         if (userKey) {
           localStorage.setItem("userkey", userKey);
@@ -313,6 +321,7 @@ function App() {
             <ChatInterface user={{id: userData.uid || userData.userKey, name: userData.nome || 'Usuário', avatar: userData.profilePicture}} onLogout={handleLogout} />
             <GlobalCallListener user={{id: userData.uid || userData.userKey, name: userData.nome || 'Usuário', avatar: userData.profilePicture}} />
             {showTutorial && <TutorialOverlay onComplete={() => setShowTutorial(false)} />}
+            {pendingTvAuth && window.DeviceManager && <window.DeviceManager initialScannedId={pendingTvAuth} onClose={() => setPendingTvAuth(null)} />}
           </>
         )}
       </div>

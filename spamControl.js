@@ -1,49 +1,102 @@
-class SpamController {
-    constructor() {
-        this.messageTimestamps = [];
-        this.audioTimestamps = [];
-        this.isBanned = false;
-        this.banUntil = 0;
+class WebRTCManager {
+    constructor(userId, onMessageReceived) {
+        this.peer = new Peer(userId.replace(/[^a-zA-Z0-9]/g, ''));
+        this.connections = {};
+        this.chunks = {};
+        this.onMessageReceived = onMessageReceived;
+
+        this.peer.on('connection', (conn) => {
+            this.setupConnection(conn);
+        });
     }
 
-    checkSpam(type) {
-        const now = Date.now();
+    setupConnection(conn) {
+        conn.on('data', (data) => {
+            if (data.type === 'text_msg') {
+                if (this.onMessageReceived) {
+                    this.onMessageReceived(conn.peer, data.content, 'text', data.msgData);
+                }
+            } else if (data.type === 'chunk') {
+                if (!this.chunks[data.id]) this.chunks[data.id] = [];
+                this.chunks[data.id][data.index] = data.chunk;
+                
+                // If all chunks received
+                if (data.index === data.total - 1) {
+                    const fullBase64 = this.chunks[data.id].join('');
+                    delete this.chunks[data.id];
+                    if (this.onMessageReceived) {
+                        this.onMessageReceived(conn.peer, fullBase64, data.fileType, data.msgData);
+                    }
+                }
+            }
+        });
+        this.connections[conn.peer] = conn;
+    }
+
+    connect(targetId) {
+        const cleanId = targetId.replace(/[^a-zA-Z0-9]/g, '');
+        if (!this.connections[cleanId]) {
+            const conn = this.peer.connect(cleanId);
+            this.setupConnection(conn);
+        }
+        return this.connections[cleanId];
+    }
+
+    sendBase64InChunks(targetId, base64Str, fileType, msgData = {}) {
+        const cleanId = targetId.replace(/[^a-zA-Z0-9]/g, '');
+        const conn = this.connect(cleanId);
+        const chunkSize = 16384; // 16kb chunks
+        const chunks = [];
         
-        // Verifica se está banido
-        if (this.isBanned && now < this.banUntil) {
-            const remaining = Math.ceil((this.banUntil - now) / 1000);
-            return { blocked: true, message: `Você está bloqueado por spam. Aguarde ${remaining} segundos.` };
-        } else if (this.isBanned && now >= this.banUntil) {
-            this.isBanned = false; // Remove o ban
+        for (let i = 0; i < base64Str.length; i += chunkSize) {
+            chunks.push(base64Str.slice(i, i + chunkSize));
         }
 
-        if (type === 'audio') {
-            // Regra: Máximo 3 áudios por 5 segundos
-            this.audioTimestamps = this.audioTimestamps.filter(t => now - t < 5000);
-            if (this.audioTimestamps.length >= 3) {
-                this.banUser(15); // Bane por 15 segundos
-                this.audioTimestamps = [];
-                return { blocked: true, message: "Muitos áudios enviados rapidamente! Bloqueado por 15s." };
-            }
-            this.audioTimestamps.push(now);
-        } else {
-            // Regra: Máximo 5 mensagens por 5 segundos
-            this.messageTimestamps = this.messageTimestamps.filter(t => now - t < 5000);
-            if (this.messageTimestamps.length >= 5) {
-                this.banUser(15);
-                this.messageTimestamps = [];
-                return { blocked: true, message: "Muitas mensagens enviadas rapidamente! Bloqueado por 15s." };
-            }
-            this.messageTimestamps.push(now);
-        }
+        const fileId = Date.now().toString();
 
-        return { blocked: false };
+        const sendNext = (index) => {
+            if (index >= chunks.length) return;
+            
+            const sendPacket = () => {
+                conn.send({ 
+                    type: 'chunk', 
+                    id: fileId, 
+                    fileType, 
+                    chunk: chunks[index], 
+                    index, 
+                    total: chunks.length,
+                    msgData
+                });
+                setTimeout(() => sendNext(index + 1), 20); // Delay for buffer
+            };
+
+            if (conn.open) {
+                sendPacket();
+            } else {
+                conn.on('open', sendPacket);
+            }
+        };
+
+        sendNext(0);
     }
 
-    banUser(seconds) {
-        this.isBanned = true;
-        this.banUntil = Date.now() + (seconds * 1000);
+    sendTextMessage(targetId, text, msgData = {}) {
+        const cleanId = targetId.replace(/[^a-zA-Z0-9]/g, '');
+        const conn = this.connect(cleanId);
+        
+        const sendPacket = () => {
+            conn.send({
+                type: 'text_msg',
+                content: text,
+                msgData
+            });
+        };
+
+        if (conn.open) {
+            sendPacket();
+        } else {
+            conn.on('open', sendPacket);
+        }
     }
 }
-
-window.spamController = new SpamController();
+window.WebRTCManager = WebRTCManager;
