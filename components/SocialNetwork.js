@@ -696,7 +696,14 @@ function SocialNetwork({ user, onClose }) {
             }
             if (word.startsWith('@') && word.length > 1) {
                 const username = word.substring(1);
-                return <span key={i} onClick={(e) => { e.stopPropagation(); window.location.href = `chat.html?chatId=${username}`; }} className="text-blue-500 font-medium cursor-pointer hover:underline z-10 relative">{word}</span>;
+                return <span key={i} onClick={async (e) => { 
+                    e.stopPropagation(); 
+                    const db = window.firebaseDB;
+                    let targetId = username; 
+                    let aliasId = `c_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                    await db.ref(`chat_aliases/${aliasId}`).set({ realId: targetId });
+                    window.location.href = `chat.html?c=${aliasId}`; 
+                }} className="text-blue-500 font-medium cursor-pointer hover:underline z-10 relative">{word}</span>;
             }
             if (word.match(/^https?:\/\/[^\s]+$/i)) {
                 return <a key={i} href={word} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-blue-500 font-medium hover:underline z-10 relative break-all">{word}</a>;

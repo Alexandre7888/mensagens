@@ -93,9 +93,30 @@ function NetworkStats({ user, onClose }) {
                             <h4 className="font-bold text-gray-800">{u.hideProfile ? 'Usuário Oculto' : u.name}</h4>
                             <p className="text-xs text-gray-500">ID: {u.id.substring(0,8)}...</p>
                         </div>
-                        <a href={`chat.html?chatId=${u.id}`} className="p-2 bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100">
+                        <button onClick={async () => {
+                            const db = window.firebaseDB;
+                            const chatSnap = await db.ref(`users/${user.id}/chats`).once('value');
+                            let chatId = null;
+                            let aliasId = null;
+                            if (chatSnap.exists()) {
+                                for (const [id, data] of Object.entries(chatSnap.val())) {
+                                    if (data.targetId === u.id || id === u.id) {
+                                        chatId = id;
+                                        aliasId = data.aliasId;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!chatId) chatId = u.id;
+                            if (!aliasId) {
+                                aliasId = `c_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                                await db.ref(`users/${user.id}/chats/${chatId}`).update({ aliasId, targetId: u.id });
+                                await db.ref(`chat_aliases/${aliasId}`).set({ realId: chatId });
+                            }
+                            window.location.href = `chat.html?c=${aliasId}`;
+                        }} className="p-2 bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100">
                             <div className="icon-message-circle"></div>
-                        </a>
+                        </button>
                     </div>
                 ))}
             </div>

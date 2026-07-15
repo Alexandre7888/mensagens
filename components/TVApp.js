@@ -25,6 +25,8 @@ function TVApp() {
     
     const [activeVideoFeed, setActiveVideoFeed] = React.useState(null);
     const [showComments, setShowComments] = React.useState(null);
+    const [selectedMsgId, setSelectedMsgId] = React.useState(null);
+    const [showSendConfirmTV, setShowSendConfirmTV] = React.useState(false);
     
     const messagesEndRef = React.useRef(null);
     const videoContainerRef = React.useRef(null);
@@ -44,21 +46,18 @@ function TVApp() {
         const savedAccounts = JSON.parse(localStorage.getItem("tv_accounts") || "[]");
         setAccounts(savedAccounts);
         
-        if (savedAccounts.length === 0) {
-            setAppState('auth');
-            listenForAuth(savedDeviceId);
-            setViewStack(['auth']);
-        } else {
-            setAppState('account_select');
-            setViewStack(['account_select']);
-        }
+        setTimeout(() => {
+            if (savedAccounts.length === 0) {
+                setAppState('auth');
+                listenForAuth(savedDeviceId);
+                setViewStack(['auth']);
+            } else {
+                setAppState('account_select');
+                setViewStack(['account_select']);
+            }
+        }, 100);
 
-        // Otimização: Não carregar todos os usuários de uma vez na TV.
-        // Carregar apenas os necessários sob demanda (implementado na renderização)
-        
-        // Voice recognition setup
         const handleResize = () => {
-            // Base resolution for TV (1920x1080)
             const baseWidth = 1920;
             const baseHeight = 1080;
             const currentWidth = window.innerWidth;
@@ -67,12 +66,11 @@ function TVApp() {
             const scaleX = currentWidth / baseWidth;
             const scaleY = currentHeight / baseHeight;
             
-            // Use the smaller scale to ensure it fits completely within the screen
             setScale(Math.min(scaleX, scaleY));
         };
 
         window.addEventListener('resize', handleResize);
-        handleResize(); // Initial call
+        handleResize();
 
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -106,6 +104,7 @@ function TVApp() {
     React.useEffect(() => {
         const handleKeyDown = (e) => {
             if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'GoBack') {
+                if (showSendConfirmTV) { setShowSendConfirmTV(false); return; }
                 if (showComments) { setShowComments(null); return; }
                 if (activeVideoFeed !== null) { setActiveVideoFeed(null); return; }
                 if (activeChat) { setActiveChat(null); return; }
@@ -118,7 +117,24 @@ function TVApp() {
 
             let currentFocus = focusableElements.findIndex(el => el.classList.contains('tv-focused'));
             
-            // Navegação no feed de vídeo (só muda o vídeo se o foco estiver no player principal)
+            // Atalho para microfone
+            if (activeChat && !showSendConfirmTV && currentFocus !== -1 && focusableElements[currentFocus].classList.contains('msg-item')) {
+                if (e.key === 'ArrowDown') {
+                    const allMsgs = Array.from(document.querySelectorAll('.msg-item'));
+                    const index = allMsgs.indexOf(focusableElements[currentFocus]);
+                    if (index >= allMsgs.length - 2) {
+                        const micBtn = document.getElementById('btn-record-audio');
+                        if (micBtn) {
+                            e.preventDefault();
+                            focusableElements[currentFocus].classList.remove('tv-focused');
+                            micBtn.classList.add('tv-focused');
+                            micBtn.focus();
+                            return;
+                        }
+                    }
+                }
+            }
+
             if (activeVideoFeed !== null && !showComments) {
                 if (currentFocus !== -1 && focusableElements[currentFocus].id === 'tv-video-player') {
                     if (e.key === 'ArrowDown') {
@@ -131,6 +147,7 @@ function TVApp() {
                     }
                 }
             }
+
             if (currentFocus === -1) {
                 currentFocus = 0;
                 focusableElements[0].classList.add('tv-focused');
@@ -150,7 +167,6 @@ function TVApp() {
                     let isCandidate = false;
                     let distance = 0;
 
-                    // Usando o centro dos elementos para uma navegação mais natural
                     const currentCenter = { x: currentRect.left + currentRect.width / 2, y: currentRect.top + currentRect.height / 2 };
                     const targetCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
                     
@@ -186,9 +202,14 @@ function TVApp() {
                 case 'ArrowUp': nextFocus = findClosest('up'); break;
                 case 'Enter':
                 case 'Ok':
-                    // Verifica se é o botão de gravação
                     if (focusableElements[currentFocus].id === 'btn-record-audio') {
-                        startAudioRecording();
+                        if (!isRecording) startAudioRecording();
+                    } else if (focusableElements[currentFocus].id === 'btn-voice-text') {
+                        if (!isVoiceToText) {
+                            setTextInput('');
+                            recognitionRef.current?.start();
+                            setIsVoiceToText(true);
+                        }
                     } else if (focusableElements[currentFocus].id === 'tv-video-player') {
                         const vid = document.getElementById(`tv-video-${activeVideoFeed}`);
                         if (vid) {
@@ -215,8 +236,13 @@ function TVApp() {
         const handleKeyUp = (e) => {
             if (e.key === 'Enter' || e.key === 'Ok') {
                 const focusableElements = Array.from(document.querySelectorAll('.tv-focusable.tv-focused'));
-                if (focusableElements.length > 0 && focusableElements[0].id === 'btn-record-audio') {
-                    stopAudioRecording();
+                if (focusableElements.length > 0) {
+                    if (focusableElements[0].id === 'btn-record-audio') {
+                        stopAudioRecording();
+                    } else if (focusableElements[0].id === 'btn-voice-text') {
+                        recognitionRef.current?.stop();
+                        setIsVoiceToText(false);
+                    }
                 }
             }
         };
@@ -234,7 +260,12 @@ function TVApp() {
             const elements = document.querySelectorAll('.tv-focusable:not([disabled])');
             const hasFocus = document.querySelector('.tv-focused');
             
-            // Se o overlay de comentários abriu, foca no input de comentário
+            if (showSendConfirmTV && document.getElementById('btn-confirm-send')) {
+                elements.forEach(el => el.classList.remove('tv-focused'));
+                document.getElementById('btn-confirm-send').classList.add('tv-focused');
+                return;
+            }
+
             if (showComments && document.getElementById('comment-input')) {
                 elements.forEach(el => el.classList.remove('tv-focused'));
                 document.getElementById('comment-input').classList.add('tv-focused');
@@ -245,8 +276,8 @@ function TVApp() {
                 elements.forEach(el => el.classList.remove('tv-focused'));
                 elements[0].classList.add('tv-focused');
             }
-        }, 300);
-    }, [appState, currentTab, activeChat, activeVideoFeed, showComments]);
+        }, 100);
+    }, [appState, currentTab, activeChat, activeVideoFeed, showComments, showSendConfirmTV]);
 
     React.useEffect(() => {
         if (messagesEndRef.current) {
@@ -257,7 +288,6 @@ function TVApp() {
     React.useEffect(() => {
         if (appState === 'main' && selectedAccount && window.firebaseDB) {
             const db = window.firebaseDB;
-            // Otimização: Limitar a quantidade de conversas carregadas
             const chatsRef = db.ref(`users/${selectedAccount.uid}/chats`).orderByChild('timestamp').limitToLast(30);
             chatsRef.on('value', snap => {
                 const val = snap.val();
@@ -280,7 +310,6 @@ function TVApp() {
                 setUnlockedForTv(snap.val() || {});
             });
 
-            // Otimização: Limitar posts carregados
             const postsRef = db.ref('posts').orderByChild('timestamp').limitToLast(20);
             postsRef.on('value', snap => {
                 const data = snap.val();
@@ -311,23 +340,72 @@ function TVApp() {
             const db = window.firebaseDB;
             const getTargetId = () => activeChat.targetId || activeChat.id.replace(selectedAccount.uid, '').replace('_', '');
             
-            let listenPath = activeChat.type === 'group' ? `groups/${activeChat.id}/messages` : `chats/${[selectedAccount.uid, getTargetId()].sort().join('_')}/messages`;
+            let listenPath = activeChat.type === 'group' ? `groups/${activeChat.id}/messages` : `chats/${selectedAccount.uid}`;
             
-            // Otimização: Carregar apenas as últimas 50 mensagens
-            const messagesRef = db.ref(listenPath).orderByChild('timestamp').limitToLast(50);
-            messagesRef.on('value', snap => {
-                const data = snap.val();
-                if (data) {
-                    const msgList = Object.keys(data).map(key => ({ ...data[key], key }));
-                    setMessages(msgList.sort((a,b) => a.timestamp - b.timestamp));
-                } else {
-                    setMessages([]);
-                }
-            });
+            const handleData = (snapshot) => {
+                const msgList = [];
+                snapshot.forEach((child) => {
+                    const msg = child.val();
+                    if (activeChat.type === 'group' || msg.senderId === getTargetId()) {
+                        msgList.push({ ...msg, key: child.key });
+                        if (activeChat.type === 'group' && !usersData[msg.senderId] && msg.senderId !== selectedAccount.uid) {
+                            db.ref(`users/${msg.senderId}/profilePicture`).once('value').then(snap => {
+                                if (snap.exists()) {
+                                    setUsersData(prev => ({ ...prev, [msg.senderId]: { profilePicture: snap.val() } }));
+                                }
+                            });
+                        }
+                    }
+                });
+                
+                if (msgList.length === 0) return;
+                
+                const localKey = `local_history_${activeChat.id}`;
+                let localHistory = [];
+                try { localHistory = JSON.parse(localStorage.getItem(localKey)) || []; } catch (e) {}
 
-            return () => messagesRef.off();
+                let merged = [...localHistory];
+                let hasNew = false;
+
+                msgList.forEach(msg => {
+                    const existsIdx = merged.findIndex(m => m.key === msg.key);
+                    if (existsIdx === -1) {
+                        merged.push(msg);
+                        hasNew = true;
+                    } else {
+                        merged[existsIdx] = { ...merged[existsIdx], ...msg };
+                        hasNew = true;
+                    }
+                });
+
+                if (hasNew) {
+                    merged.sort((a, b) => a.timestamp - b.timestamp);
+                    if (merged.length > 2000) merged = merged.slice(merged.length - 2000);
+                    localStorage.setItem(localKey, JSON.stringify(merged));
+                    setMessages(merged);
+                }
+                
+                if (activeChat.type !== 'group') {
+                    msgList.forEach(msg => {
+                        db.ref(`${listenPath}/${msg.key}`).remove().catch(console.error);
+                    });
+                }
+            };
+
+            const localKey = `local_history_${activeChat.id}`;
+            try {
+                const localHist = JSON.parse(localStorage.getItem(localKey));
+                if (localHist && localHist.length > 0) {
+                    localHist.sort((a, b) => a.timestamp - b.timestamp);
+                    setMessages(localHist);
+                }
+            } catch(e) {}
+
+            db.ref(listenPath).on('value', handleData);
+
+            return () => db.ref(listenPath).off('value', handleData);
         }
-    }, [activeChat, selectedAccount]);
+    }, [activeChat, selectedAccount, usersData]);
 
     const handleBack = () => {
         setViewStack(prev => {
@@ -378,8 +456,43 @@ function TVApp() {
 
     const selectAccount = async (acc) => {
         setAppState('loading');
+        
+        if (window.ChatP2P) {
+            window.ChatP2P.initPeer(acc.uid, (msg) => {
+                if (activeChat) {
+                    const getTargetId = () => activeChat.targetId || activeChat.id.replace(acc.uid, '').replace('_', '');
+                    const isFromCurrentChat = (activeChat.type === 'group' && msg.groupId === activeChat.id) || (msg.senderId === getTargetId());
+                    
+                    if (isFromCurrentChat) {
+                        setMessages(prev => {
+                            if (!prev.find(m => m.key === msg.key)) {
+                                const newMsg = { ...msg, key: msg.key || `webrtc_${Date.now()}` };
+                                const merged = [...prev, newMsg].sort((a,b) => a.timestamp - b.timestamp);
+                                localStorage.setItem(`local_history_${activeChat.id}`, JSON.stringify(merged.slice(-2000)));
+                                return merged;
+                            }
+                            return prev;
+                        });
+                    }
+                }
+            });
+        }
+
+        if (window.SyncManager) {
+            window.tvSyncManager = new window.SyncManager(acc.uid, 'tv', (syncedHistory) => {
+                for (const [key, history] of Object.entries(syncedHistory)) {
+                    localStorage.setItem(key, JSON.stringify(history));
+                }
+                if (activeChat) {
+                    const localKey = `local_history_${activeChat.id}`;
+                    if (syncedHistory[localKey]) {
+                        setMessages(syncedHistory[localKey]);
+                    }
+                }
+            });
+        }
+
         if (window.firebaseDB) {
-            // Otimização Extrema: Busca apenas a foto e o nome para não baixar a árvore inteira do usuário
             try {
                 const fbNameSnap = await window.firebaseDB.ref(`users/${acc.uid}/name`).once('value');
                 const fbPicSnap = await window.firebaseDB.ref(`users/${acc.uid}/profilePicture`).once('value');
@@ -388,8 +501,7 @@ function TVApp() {
                 const pic = fbPicSnap.val();
                 
                 if (pic && pic !== acc.foto) {
-                    const updatedAcc = { ...acc, foto: pic, nome: name || acc.nome };
-                    setSelectedAccount(updatedAcc);
+                    setSelectedAccount({ ...acc, foto: pic, nome: name || acc.nome });
                 } else {
                     setSelectedAccount({ ...acc, nome: name || acc.nome });
                 }
@@ -404,31 +516,69 @@ function TVApp() {
         navigateTo('main');
     };
 
-    // Chat sending logic
-    const sendTextMessage = async (customText = null) => {
-        const text = customText || textInput;
-        if (!text.trim() || !activeChat) return;
+    const sendTextMessage = async () => {
+        if (!textInput.trim() || !activeChat) return;
         
         const db = window.firebaseDB;
         const getTargetId = () => activeChat.targetId || activeChat.id.replace(selectedAccount.uid, '').replace('_', '');
         
-        const encryptionKey = activeChat.type === 'group' ? activeChat.id : [selectedAccount.uid, getTargetId()].sort().join('_');
-        const encryptedText = window.CryptoUtils ? window.CryptoUtils.encrypt(text.trim(), encryptionKey) : text.trim();
+        let encryptionKey;
+        if (activeChat.type === 'group') {
+            encryptionKey = activeChat.id;
+        } else if (activeChat.id && activeChat.id.startsWith('chat_')) {
+            encryptionKey = activeChat.id;
+        } else {
+            encryptionKey = [selectedAccount.uid, getTargetId()].sort().join('_');
+        }
+
+        const encryptedText = window.CryptoUtils ? window.CryptoUtils.encrypt(textInput.trim(), encryptionKey) : textInput.trim();
+        const sharedChatId = activeChat.type === 'group' ? activeChat.id : encryptionKey;
+        const writePath = activeChat.type === 'group' ? `groups/${activeChat.id}/messages` : `chats/${sharedChatId}`;
         
         const msgData = {
             senderId: selectedAccount.uid,
             senderName: selectedAccount.nome,
-            targetId: getTargetId(),
-            chatId: activeChat.id,
-            chatType: activeChat.type || 'direct',
             type: 'text',
             text: encryptedText,
             timestamp: Date.now()
         };
         
-        await db.ref(`tv_sync_queue/${selectedAccount.uid}`).push(msgData);
+        const uniqueKey = db.ref(writePath).push().key;
+        const finalMsgData = { ...msgData, key: uniqueKey };
+        
+        await db.ref(`${writePath}/${uniqueKey}`).set(finalMsgData);
+        
+        if (activeChat.type !== 'group') {
+            setMessages(prev => {
+                const merged = [...prev, finalMsgData].sort((a,b) => a.timestamp - b.timestamp);
+                localStorage.setItem(`local_history_${activeChat.id}`, JSON.stringify(merged.slice(-2000)));
+                return merged;
+            });
+        }
+        
+        const chatUpdate = { lastMessage: encryptedText, timestamp: Date.now() };
+        if (activeChat.type === 'group') {
+            db.ref(`groups/${activeChat.id}/members`).once('value').then(snap => {
+                const members = snap.val() || {};
+                for (const uid of Object.keys(members)) {
+                    db.ref(`users/${uid}/chats/${activeChat.id}`).update(chatUpdate);
+                }
+            });
+        } else {
+            db.ref(`users/${selectedAccount.uid}/chats/${activeChat.id}`).update(chatUpdate);
+            const targetId = getTargetId();
+            if (targetId && targetId !== selectedAccount.uid) {
+                db.ref(`users/${targetId}/chats/${selectedAccount.uid}`).update({
+                    ...chatUpdate,
+                    name: selectedAccount.nome || 'Usuário',
+                    type: 'direct',
+                    targetId: selectedAccount.uid
+                });
+            }
+        }
         
         setTextInput('');
+        setShowSendConfirmTV(false);
     };
 
     const startAudioRecording = async () => {
@@ -448,19 +598,53 @@ function TVApp() {
                 reader.readAsDataURL(blob);
                 reader.onload = async () => {
                     const base64 = reader.result;
+                    const db = window.firebaseDB;
                     const getTargetId = () => activeChat.targetId || activeChat.id.replace(selectedAccount.uid, '').replace('_', '');
+                    const writePath = activeChat.type === 'group' ? `groups/${activeChat.id}/messages` : `chats/${getTargetId()}`;
                     
                     const msgData = {
                         senderId: selectedAccount.uid,
                         senderName: selectedAccount.nome,
-                        targetId: getTargetId(),
-                        chatId: activeChat.id,
-                        chatType: activeChat.type || 'direct',
                         type: 'audio',
                         fileData: base64,
                         timestamp: Date.now()
                     };
-                    await window.firebaseDB.ref(`tv_sync_queue/${selectedAccount.uid}`).push(msgData);
+                    
+                    const uniqueKey = db.ref(writePath).push().key;
+                    const finalMsgData = { ...msgData, key: uniqueKey };
+
+                    let targetId = getTargetId();
+                    let sentViaP2P = false;
+
+                    if (activeChat.type === 'group') {
+                        finalMsgData.groupId = activeChat.id;
+                    }
+
+                    if (window.ChatP2P) {
+                        if (activeChat.type === 'group') {
+                            try {
+                                const snap = await db.ref(`groups/${activeChat.id}/members`).once('value');
+                                const members = snap.val() || {};
+                                const targetIds = Object.keys(members).filter(uid => uid !== selectedAccount.uid);
+                                sentViaP2P = window.ChatP2P.sendMessage(selectedAccount.uid, targetIds, finalMsgData);
+                            } catch(e) {}
+                        } else if (targetId) {
+                            sentViaP2P = window.ChatP2P.sendMessage(selectedAccount.uid, targetId, finalMsgData);
+                        }
+                    }
+                    
+                    await db.ref(`${writePath}/${uniqueKey}`).set(finalMsgData);
+                    
+                    if (activeChat.type !== 'group') {
+                        setMessages(prev => {
+                            if (!prev.find(m => m.key === finalMsgData.key)) {
+                                const merged = [...prev, finalMsgData].sort((a,b) => a.timestamp - b.timestamp);
+                                localStorage.setItem(`local_history_${activeChat.id}`, JSON.stringify(merged.slice(-2000)));
+                                return merged;
+                            }
+                            return prev;
+                        });
+                    }
                 };
             };
             
@@ -480,14 +664,28 @@ function TVApp() {
         }
     };
 
-    const toggleVoiceToText = () => {
-        if (isVoiceToText) {
-            recognitionRef.current?.stop();
-            setIsVoiceToText(false);
-        } else {
-            setTextInput('');
-            recognitionRef.current?.start();
-            setIsVoiceToText(true);
+    const toggleSelection = (msgId) => {
+        setSelectedMsgId(prev => prev === msgId ? null : msgId);
+    };
+
+    const handleDeleteMessage = async (msgId, forEveryone) => {
+        if (window.confirm(forEveryone ? "Apagar para todos?" : "Apagar para mim?")) {
+            const db = window.firebaseDB;
+            const getTargetId = () => activeChat.targetId || activeChat.id.replace(selectedAccount.uid, '').replace('_', '');
+            
+            if (forEveryone) {
+                const writePath = activeChat.type === 'group' ? `groups/${activeChat.id}/messages` : `chats/${[selectedAccount.uid, getTargetId()].sort().join('_')}`;
+                await db.ref(`${writePath}/${msgId}`).remove();
+            }
+            
+            // Remove locally
+            setMessages(prev => {
+                const merged = prev.filter(m => m.key !== msgId);
+                localStorage.setItem(`local_history_${activeChat.id}`, JSON.stringify(merged.slice(-2000)));
+                return merged;
+            });
+
+            setSelectedMsgId(null);
         }
     };
 
@@ -545,8 +743,21 @@ function TVApp() {
                         marginLeft: '-960px',
                     }}
                 >
-                <div className="w-full h-full flex gap-12 p-16 pt-[100px] pb-16 px-[100px] bg-transparent">
-                {/* Sidebar */}
+                <div className="w-full h-full flex gap-12 p-16 pt-[100px] pb-16 px-[100px] bg-transparent relative">
+                
+                {/* Send Confirmation Modal */}
+                {showSendConfirmTV && (
+                    <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-[100]">
+                        <div className="bg-gray-800 p-8 rounded-3xl text-center shadow-2xl border border-gray-700">
+                            <h2 className="text-3xl font-bold mb-8">Enviar mensagem?</h2>
+                            <div className="flex gap-6 justify-center">
+                                <button id="btn-confirm-send" className="tv-focusable bg-indigo-600 px-8 py-4 rounded-xl text-xl font-bold" onClick={sendTextMessage}>Enviar</button>
+                                <button className="tv-focusable bg-gray-600 px-8 py-4 rounded-xl text-xl font-bold" onClick={() => setShowSendConfirmTV(false)}>Cancelar</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {!isFullScreenMode && (
                     <div className="w-80 bg-gray-800/90 backdrop-blur-md p-8 flex flex-col border border-gray-700/50 rounded-[2rem] z-10 shrink-0 shadow-2xl">
                         <div className="flex items-center gap-3 mb-6 bg-gray-900/50 p-3 rounded-2xl border border-gray-700/50">
@@ -573,7 +784,6 @@ function TVApp() {
                 
                 <div className={`flex-1 flex flex-col relative overflow-hidden bg-gray-900/95 backdrop-blur-md ${!isFullScreenMode ? 'border border-gray-700/50 rounded-[2rem] shadow-2xl' : 'rounded-3xl'}`}>
                     
-                    {/* Chat Area */}
                     {activeChat ? (
                         <div className="flex flex-col h-full absolute inset-0 bg-gray-900 z-20">
                             <div className="bg-gray-800/90 backdrop-blur p-6 border-b border-gray-700/50 flex items-center gap-4 shrink-0 shadow-md rounded-t-[2rem]">
@@ -591,11 +801,55 @@ function TVApp() {
                             <div className="flex-1 overflow-y-auto p-6 space-y-4">
                                 {messages.map((msg) => {
                                     const isMe = msg.senderId === selectedAccount.uid;
-                                    const encryptionKey = activeChat.type === 'group' ? activeChat.id : [selectedAccount.uid, (activeChat.targetId || activeChat.id.replace(selectedAccount.uid, '').replace('_', ''))].sort().join('_');
+                                    const isSelected = selectedMsgId === msg.key;
+                                    
+                                    let encryptionKey;
+                                    if (activeChat.type === 'group') {
+                                        encryptionKey = activeChat.id;
+                                    } else if (activeChat.id && activeChat.id.startsWith('chat_')) {
+                                        encryptionKey = activeChat.id;
+                                    } else {
+                                        const targetId = activeChat.targetId || activeChat.id.replace(selectedAccount.uid, '').replace('_', '');
+                                        encryptionKey = [selectedAccount.uid, targetId].sort().join('_');
+                                    }
+                                    
                                     const textContent = msg.type === 'text' && window.CryptoUtils ? window.CryptoUtils.decrypt(msg.text, encryptionKey) : msg.text;
                                     return (
-                                        <div key={msg.key} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                            <div className={`max-w-[70%] rounded-2xl px-6 py-4 ${isMe ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-gray-800 text-gray-100 rounded-bl-none border border-gray-700'}`}>
+                                        <div key={msg.key} className={`flex ${isMe ? 'justify-end' : 'justify-start'} gap-3 mb-4`}>
+                                            {!isMe && activeChat.type === 'group' && (
+                                                <div className="shrink-0 mt-auto">
+                                                    {usersData[msg.senderId]?.profilePicture ? (
+                                                        <img src={usersData[msg.senderId].profilePicture} className="w-10 h-10 rounded-full object-cover border border-gray-600" />
+                                                    ) : (
+                                                        <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center font-bold text-sm">{(msg.senderName || 'U').charAt(0).toUpperCase()}</div>
+                                                    )}
+                                                </div>
+                                            )}
+                                            <div 
+                                                className={`msg-item tv-focusable relative max-w-[70%] rounded-2xl px-6 py-4 outline-none ${isMe ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-gray-800 text-gray-100 rounded-bl-none border border-gray-700'} ${isSelected ? 'ring-4 ring-indigo-400 scale-[1.02] z-10' : ''}`}
+                                                onClick={() => toggleSelection(msg.key)}
+                                            >
+                                                {isSelected && (
+                                                    <div className="absolute -top-16 right-0 flex gap-4 bg-gray-800 p-3 rounded-2xl z-20 shadow-2xl border border-gray-700">
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); handleDeleteMessage(msg.key, false); }} 
+                                                            className="text-white hover:text-gray-300 flex items-center justify-center p-3 rounded-xl hover:bg-gray-700" 
+                                                            title="Apagar para mim"
+                                                        >
+                                                            <div className="icon-trash text-2xl"></div>
+                                                        </button>
+                                                        {isMe && (
+                                                            <button 
+                                                                onClick={(e) => { e.stopPropagation(); handleDeleteMessage(msg.key, true); }} 
+                                                                className="text-red-500 hover:text-red-400 flex items-center justify-center p-3 rounded-xl hover:bg-gray-700" 
+                                                                title="Apagar para todos"
+                                                            >
+                                                                <div className="icon-trash text-2xl"></div>
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                
                                                 {!isMe && activeChat.type === 'group' && <span className="block text-sm font-bold text-indigo-400 mb-1">{msg.senderName}</span>}
                                                 {msg.type === 'text' && <p className="text-xl leading-relaxed">{textContent}</p>}
                                                 {msg.type === 'audio' && window.CustomAudioPlayer ? <window.CustomAudioPlayer src={msg.fileData} isOwn={isMe} /> : null}
@@ -612,13 +866,13 @@ function TVApp() {
                                 <div className="flex items-center gap-4">
                                     <button 
                                         id="btn-record-audio"
-                                        className={`tv-focusable p-4 rounded-full font-bold text-xl flex items-center justify-center transition-colors shadow-lg ${isRecording ? 'bg-red-500 animate-pulse' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                                        className={`tv-focusable p-4 rounded-full font-bold text-xl flex items-center justify-center transition-colors shadow-lg ${isRecording ? 'bg-red-600 scale-110' : 'bg-indigo-600 hover:bg-indigo-700'}`}
                                     >
                                         <div className="icon-mic text-2xl"></div>
                                     </button>
                                     <button 
-                                        className={`tv-focusable p-4 rounded-full font-bold text-xl flex items-center justify-center transition-colors shadow-lg ${isVoiceToText ? 'bg-blue-500 animate-pulse' : 'bg-gray-700 hover:bg-gray-600'}`}
-                                        onClick={toggleVoiceToText}
+                                        id="btn-voice-text"
+                                        className={`tv-focusable p-4 rounded-full font-bold text-xl flex items-center justify-center transition-colors shadow-lg ${isVoiceToText ? 'bg-blue-500 animate-pulse scale-110' : 'bg-gray-700 hover:bg-gray-600'}`}
                                     >
                                         <div className="icon-audio-lines text-2xl"></div>
                                     </button>
@@ -628,52 +882,56 @@ function TVApp() {
                                         placeholder="Digite uma mensagem..." 
                                         value={textInput} 
                                         onChange={e => setTextInput(e.target.value)}
-                                        onKeyDown={e => { if(e.key==='Enter' && textInput.trim()) sendTextMessage(); }}
                                     />
-                                    <button className="tv-focusable bg-indigo-600 p-4 rounded-xl hover:bg-indigo-700" onClick={() => sendTextMessage()}>
+                                    <button className="tv-focusable bg-indigo-600 p-4 rounded-xl hover:bg-indigo-700" onClick={() => {
+                                        if (textInput.trim()) {
+                                            setShowSendConfirmTV(true);
+                                        }
+                                    }}>
                                         <div className="icon-send text-2xl"></div>
                                     </button>
                                 </div>
-                                <p className="text-gray-400 text-sm text-center">Pressione e segure "OK" no botão de microfone para gravar áudio.</p>
+                                <p className="text-gray-400 text-sm text-center">Pressione e segure "OK" no microfone para áudio ou texto.</p>
                             </div>
                         </div>
                     ) : activeVideoFeed !== null ? (
-                        /* TikTok Style Video Feed */
-                        <div className="absolute inset-0 bg-black z-20 flex">
+                        <div className="absolute inset-0 bg-black z-20 flex flex-col">
                             <div 
-                                id="tv-video-player"
-                                className="tv-focusable flex-1 relative h-full cursor-pointer group rounded-l-[2rem] overflow-hidden"
-                                onClick={() => {
-                                    const vid = document.getElementById(`tv-video-${activeVideoFeed}`);
-                                    if (vid) {
-                                        if (vid.paused) vid.play();
-                                        else vid.pause();
-                                    }
-                                }}
+                                ref={videoContainerRef}
+                                className="flex-1 w-full h-full snap-y snap-mandatory overflow-y-scroll no-scrollbar bg-black relative rounded-l-[2rem]"
                             >
-                                {posts[activeVideoFeed] && (
-                                    <>
-                                        <video 
-                                            id={`tv-video-${activeVideoFeed}`}
-                                            src={posts[activeVideoFeed].mediaUrl} 
-                                            autoPlay loop playsInline 
-                                            className="w-full h-full object-contain pointer-events-none"
-                                        />
-                                        <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity" style={{ opacity: document.getElementById(`tv-video-${activeVideoFeed}`)?.paused ? 1 : 0 }}>
-                                            <div className="w-24 h-24 bg-black/50 rounded-full flex items-center justify-center backdrop-blur-sm pointer-events-none">
-                                                <div className="icon-play text-white text-5xl ml-2 opacity-90"></div>
-                                            </div>
+                                {posts.map((vPost, index) => {
+                                    const isVisible = index === activeVideoFeed;
+                                    const isNear = Math.abs(index - activeVideoFeed) <= 1;
+                                    return (
+                                        <div key={vPost.id} data-index={index} className="w-full h-full snap-start snap-always relative flex items-center justify-center bg-black">
+                                            <video 
+                                                id={`tv-video-${index}`}
+                                                src={isNear ? vPost.mediaUrl : ""} 
+                                                autoPlay={isVisible} 
+                                                loop 
+                                                playsInline 
+                                                preload={isVisible ? "auto" : "metadata"}
+                                                className="w-full h-full object-contain pointer-events-none"
+                                            />
+                                            {isVisible && (
+                                                <>
+                                                    <div 
+                                                        id={`tv-video-player`}
+                                                        className="tv-focusable absolute inset-0 z-10 cursor-pointer"
+                                                    ></div>
+                                                    <div className="absolute bottom-0 left-0 right-32 p-8 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-20">
+                                                        <h3 className="text-2xl font-bold text-white">@{vPost.authorName}</h3>
+                                                        <p className="text-xl mt-2 text-white">{vPost.content}</p>
+                                                    </div>
+                                                </>
+                                            )}
                                         </div>
-                                        <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-black/80 to-transparent pointer-events-none">
-                                            <h3 className="text-2xl font-bold">@{posts[activeVideoFeed].authorName}</h3>
-                                            <p className="text-xl mt-2">{posts[activeVideoFeed].content}</p>
-                                        </div>
-                                    </>
-                                )}
+                                    );
+                                })}
                             </div>
                             
-                            {/* Actions Right Sidebar */}
-                            <div className="w-28 bg-black/60 backdrop-blur-md flex flex-col items-center justify-end py-12 gap-8 border-l border-white/10 z-30 rounded-r-[2rem]">
+                            <div className="absolute right-0 top-0 bottom-0 w-32 bg-black/60 backdrop-blur-md flex flex-col items-center justify-end py-12 gap-8 border-l border-white/10 z-30 rounded-r-[2rem]">
                                 <div className="relative">
                                     <img src={posts[activeVideoFeed]?.authorAvatar || 'https://via.placeholder.com/150'} className="w-14 h-14 rounded-full border-2 border-white object-cover" />
                                 </div>
@@ -691,44 +949,38 @@ function TVApp() {
                                     </div>
                                     <span className="text-sm font-bold">{posts[activeVideoFeed]?.commentsCount}</span>
                                 </button>
-
-                                <div className="mt-8 flex flex-col items-center gap-2">
-                                    <div className="icon-arrow-up text-gray-400 text-xl animate-bounce"></div>
-                                    <div className="icon-arrow-down text-gray-400 text-xl animate-bounce"></div>
-                                </div>
                             </div>
                             
-                            {/* Comments Overlay */}
                             {showComments && (
-                                <div className="absolute top-0 right-24 bottom-0 w-[450px] bg-gray-900 border-l border-gray-700 flex flex-col shadow-2xl z-40">
-                                    <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-gray-800">
-                                        <h3 className="font-bold text-xl">Comentários</h3>
-                                        <button className="tv-focusable p-2 rounded-full hover:bg-gray-700" onClick={() => setShowComments(null)} id="btn-close-comments">
-                                            <div className="icon-x text-xl"></div>
+                                <div className="absolute top-0 right-32 bottom-0 w-[500px] bg-gray-900 border-l border-gray-700 flex flex-col shadow-2xl z-40">
+                                    <div className="p-6 border-b border-gray-700 flex justify-between items-center bg-gray-800">
+                                        <h3 className="font-bold text-2xl">Comentários</h3>
+                                        <button className="tv-focusable p-3 rounded-full hover:bg-gray-700" onClick={() => setShowComments(null)} id="btn-close-comments">
+                                            <div className="icon-x text-2xl"></div>
                                         </button>
                                     </div>
-                                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                                    <div className="flex-1 overflow-y-auto p-6 space-y-6">
                                         {showComments.comments && Object.keys(showComments.comments).length > 0 ? Object.values(showComments.comments).map((c, i) => (
-                                            <div key={i} className="tv-focusable flex gap-3 p-2 rounded-lg outline-none">
+                                            <div key={i} className="tv-focusable flex gap-4 p-3 rounded-xl outline-none">
                                                 {c.authorAvatar ? (
-                                                    <img src={c.authorAvatar} className="w-10 h-10 rounded-full object-cover shrink-0 bg-gray-800" />
+                                                    <img src={c.authorAvatar} className="w-12 h-12 rounded-full object-cover shrink-0 bg-gray-800" />
                                                 ) : (
-                                                    <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center font-bold shrink-0">
+                                                    <div className="w-12 h-12 rounded-full bg-indigo-600 flex items-center justify-center font-bold shrink-0 text-lg">
                                                         {(c.authorName || '?').charAt(0)}
                                                     </div>
                                                 )}
                                                 <div>
-                                                    <span className="font-bold text-sm text-gray-300 block">{c.authorName}</span>
-                                                    <p className="text-gray-100 text-lg mt-1 leading-snug">{c.text}</p>
+                                                    <span className="font-bold text-lg text-gray-300 block">{c.authorName}</span>
+                                                    <p className="text-gray-100 text-xl mt-1 leading-snug">{c.text}</p>
                                                 </div>
                                             </div>
-                                        )) : <p className="text-center text-gray-500 mt-10">Nenhum comentário. Pressione OK no campo abaixo para digitar.</p>}
+                                        )) : <p className="text-center text-gray-500 mt-10 text-xl">Nenhum comentário.</p>}
                                     </div>
-                                    <div className="p-4 border-t border-gray-700 bg-gray-800 shrink-0">
-                                        <div className="flex gap-2">
+                                    <div className="p-6 border-t border-gray-700 bg-gray-800 shrink-0">
+                                        <div className="flex gap-4">
                                             <input 
                                                 type="text" 
-                                                className="tv-focusable flex-1 bg-gray-900 border border-gray-600 rounded-xl px-4 py-3 outline-none focus:border-indigo-500 text-lg" 
+                                                className="tv-focusable flex-1 bg-gray-900 border border-gray-600 rounded-xl px-6 py-4 outline-none focus:border-indigo-500 text-xl" 
                                                 placeholder="Digite aqui..."
                                                 id="comment-input"
                                                 onKeyDown={(e) => {
@@ -741,14 +993,14 @@ function TVApp() {
                                                     }
                                                 }}
                                             />
-                                            <button className="tv-focusable bg-indigo-600 px-5 rounded-xl flex items-center justify-center hover:bg-indigo-700" onClick={() => {
+                                            <button className="tv-focusable bg-indigo-600 px-6 rounded-xl flex items-center justify-center hover:bg-indigo-700" onClick={() => {
                                                 const el = document.getElementById('comment-input');
                                                 if(el && el.value) {
                                                     handleSocialComment(showComments.id, el.value);
                                                     el.value = '';
                                                 }
                                             }}>
-                                                <div className="icon-send text-xl"></div>
+                                                <div className="icon-send text-2xl"></div>
                                             </button>
                                         </div>
                                     </div>
@@ -756,7 +1008,6 @@ function TVApp() {
                             )}
                         </div>
                     ) : (
-                        /* Normal Tab Views */
                         <div className="flex-1 p-10 overflow-y-auto">
                             {currentTab === 'chats' && (
                                 <>
@@ -765,7 +1016,6 @@ function TVApp() {
                                     </h1>
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                                         {chats.map(chat => {
-                                            // Fallback para avatar caso não tenha usersData completo
                                             const chatAvatar = chat.type === 'community' ? null : (chat.avatar || 'https://via.placeholder.com/150');
                                             const isLocked = lockedChats[chat.id] && !unlockedForTv[chat.id];
                                             return (
@@ -785,58 +1035,6 @@ function TVApp() {
                                                 </div>
                                             );
                                         })}
-                                        
-                                        {showUnlockModal && (
-                                            <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-8">
-                                                <div className="bg-gray-800 border border-gray-700 rounded-3xl p-8 max-w-lg w-full text-center shadow-2xl">
-                                                    <div className="w-20 h-20 bg-gray-900 rounded-full flex items-center justify-center mx-auto mb-6">
-                                                        <div className="icon-lock text-4xl text-indigo-500"></div>
-                                                    </div>
-                                                    <h2 className="text-2xl font-bold mb-4">Conversa Trancada</h2>
-                                                    {authRequest === 'pending' ? (
-                                                        <div>
-                                                            <p className="text-gray-400 text-lg mb-6">Solicitação enviada. Aprove no seu dispositivo principal...</p>
-                                                            <div className="icon-loader animate-spin text-4xl text-indigo-500 mx-auto"></div>
-                                                            <button className="tv-focusable mt-8 px-6 py-3 bg-gray-700 rounded-xl hover:bg-gray-600" onClick={() => {
-                                                                window.firebaseDB.ref(`users/${selectedAccount.uid}/authRequests/${deviceId}`).remove();
-                                                                setAuthRequest(null);
-                                                                setShowUnlockModal(null);
-                                                            }}>Cancelar</button>
-                                                        </div>
-                                                    ) : (
-                                                        <div>
-                                                            <p className="text-gray-400 text-lg mb-6">Deseja pedir permissão para o dispositivo principal abrir este contato?</p>
-                                                            <label className="flex items-center justify-center gap-3 mb-8 cursor-pointer group">
-                                                                <input type="checkbox" className="tv-focusable w-6 h-6 rounded border-gray-600 bg-gray-900 text-indigo-600 focus:ring-indigo-500" checked={alwaysAllow} onChange={e => setAlwaysAllow(e.target.checked)} />
-                                                                <span className="text-gray-300 text-lg group-hover:text-white">Deixar este dispositivo abrir sem senha futuramente</span>
-                                                            </label>
-                                                            <div className="flex gap-4 justify-center">
-                                                                <button className="tv-focusable px-8 py-4 bg-gray-700 rounded-xl hover:bg-gray-600 text-lg font-bold transition-colors" onClick={() => setShowUnlockModal(null)}>Cancelar</button>
-                                                                <button className="tv-focusable px-8 py-4 bg-indigo-600 rounded-xl hover:bg-indigo-700 text-lg font-bold transition-colors" onClick={() => {
-                                                                    setAuthRequest('pending');
-                                                                    const reqRef = window.firebaseDB.ref(`users/${selectedAccount.uid}/authRequests/${deviceId}`);
-                                                                    reqRef.set({ chatId: showUnlockModal.id, alwaysAllow, status: 'pending', timestamp: Date.now() });
-                                                                    reqRef.on('value', snap => {
-                                                                        const val = snap.val();
-                                                                        if (val && val.status === 'approved') {
-                                                                            reqRef.off();
-                                                                            reqRef.remove();
-                                                                            setAuthRequest(null);
-                                                                            setShowUnlockModal(null);
-                                                                            setActiveChat(showUnlockModal);
-                                                                        } else if (!val) {
-                                                                            reqRef.off();
-                                                                            setAuthRequest(null);
-                                                                            setShowUnlockModal(null);
-                                                                        }
-                                                                    });
-                                                                }}>Sim, permito</button>
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        )}
                                     </div>
                                 </>
                             )}

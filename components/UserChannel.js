@@ -225,12 +225,33 @@ function UserChannel({ currentUser, channelUserId }) {
                             </button>
                             
                             {isFriend && (
-                                <a 
-                                    href={`chat.html?chatId=${channelUserId}`}
+                                <button 
+                                    onClick={async () => {
+                                        const db = window.firebaseDB;
+                                        const chatSnap = await db.ref(`users/${currentUser.id}/chats`).once('value');
+                                        let chatId = null;
+                                        let aliasId = null;
+                                        if (chatSnap.exists()) {
+                                            for (const [id, data] of Object.entries(chatSnap.val())) {
+                                                if (data.targetId === channelUserId || id === channelUserId) {
+                                                    chatId = id;
+                                                    aliasId = data.aliasId;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        if (!chatId) chatId = channelUserId;
+                                        if (!aliasId) {
+                                            aliasId = `c_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                                            await db.ref(`users/${currentUser.id}/chats/${chatId}`).update({ aliasId, targetId: channelUserId });
+                                            await db.ref(`chat_aliases/${aliasId}`).set({ realId: chatId });
+                                        }
+                                        window.location.href = `chat.html?c=${aliasId}`;
+                                    }}
                                     className="flex-1 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-100"
                                 >
                                     <div className="icon-message-circle"></div> Mensagem
-                                </a>
+                                </button>
                             )}
                         </div>
                     )}

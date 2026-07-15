@@ -1,111 +1,263 @@
-function ChatInput({ 
-    chat, user, db, refPath, ephemeralMode, encryptionKey, 
-    replyingTo, setReplyingTo, showEmojiPicker, setShowEmojiPicker, 
-    showGifPicker, setShowGifPicker, showAttachMenu, setShowAttachMenu,
-    setShowCamera, fileInputRef, sendMediaFile, sendMessage, 
-    messageInput, setMessageInput, startRecording, stopRecording, recording
-}) {
-    const [localMessageInput, setLocalMessageInput] = React.useState(messageInput || "");
-    const typingTimer = React.useRef(null);
+const ChatInput = ({ onSendMessage, onSendAudio, isTV = false }) => {
+    const [message, setMessage] = React.useState('');
+    const [isRecording, setIsRecording] = React.useState(false);
+    const [recordingTime, setRecordingTime] = React.useState(0);
+    const [showMobileRecordPanel, setShowMobileRecordPanel] = React.useState(false);
+    const [isRecordingPaused, setIsRecordingPaused] = React.useState(false);
+    const [showSendConfirmTV, setShowSendConfirmTV] = React.useState(false);
+    const [dragOffset, setDragOffset] = React.useState({ x: 0, y: 0 });
+    const [isCanceling, setIsCanceling] = React.useState(false);
+    
+    const mediaRecorderRef = React.useRef(null);
+    const audioChunksRef = React.useRef([]);
+    const timerRef = React.useRef(null);
+    const touchStartRef = React.useRef({ x: 0, y: 0 });
+    const isCancelledRef = React.useRef(false);
 
-    React.useEffect(() => {
-        setMessageInput(localMessageInput);
-    }, [localMessageInput, setMessageInput]);
+    const startRecording = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorderRef.current = new MediaRecorder(stream);
+            audioChunksRef.current = [];
+            isCancelledRef.current = false;
 
-    React.useEffect(() => {
-        setLocalMessageInput(messageInput);
-    }, [messageInput]);
+            mediaRecorderRef.current.ondataavailable = (e) => {
+                if (e.data.size > 0) audioChunksRef.current.push(e.data);
+            };
 
-    const handleSendMessage = () => {
-        if (localMessageInput.trim().length === 0) return;
-        sendMessage(localMessageInput);
-        setLocalMessageInput("");
+            mediaRecorderRef.current.onstop = () => {
+                if (!isCancelledRef.current && audioChunksRef.current.length > 0) {
+                    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                    if (onSendAudio) onSendAudio(audioBlob);
+                }
+                stream.getTracks().forEach(track => track.stop());
+                audioChunksRef.current = [];
+            };
+
+            mediaRecorderRef.current.start();
+            setIsRecording(true);
+            setRecordingTime(0);
+            setIsRecordingPaused(false);
+            setIsCanceling(false);
+            
+            timerRef.current = setInterval(() => {
+                setRecordingTime(prev => prev + 1);
+            }, 1000);
+        } catch (err) {
+            console.error('Error accessing microphone', err);
+        }
+    };
+
+    const stopRecording = (cancel = false) => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            isCancelledRef.current = cancel;
+            mediaRecorderRef.current.stop();
+        }
+        clearInterval(timerRef.current);
+        setIsRecording(false);
+        setShowMobileRecordPanel(false);
+        setDragOffset({ x: 0, y: 0 });
+        setIsCanceling(false);
+    };
+
+    const pauseRecording = () => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            mediaRecorderRef.current.pause();
+            setIsRecordingPaused(true);
+            clearInterval(timerRef.current);
+        }
+    };
+
+    const resumeRecording = () => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
+            mediaRecorderRef.current.resume();
+            setIsRecordingPaused(false);
+            timerRef.current = setInterval(() => {
+                setRecordingTime(prev => prev + 1);
+            }, 1000);
+        }
+    };
+
+    // TV hold-to-record logic
+    const handleTVKeyDown = (e) => {
+        if (!isTV) return;
+        if (e.key === 'Enter' || e.key === 'Ok') {
+            if (!isRecording) startRecording();
+        }
+    };
+
+    const handleTVKeyUp = (e) => {
+        if (!isTV) return;
+        if (e.key === 'Enter' || e.key === 'Ok') {
+            if (isRecording) stopRecording(false);
+        }
+    };
+
+    // Mobile touch logic
+    const handleTouchStart = (e) => {
+        if (isTV) return;
+        const touch = e.touches ? e.touches[0] : e;
+        touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+        startRecording();
+    };
+
+    const handleTouchMove = (e) => {
+        if (isTV || !isRecording || showMobileRecordPanel) return;
+        const touch = e.touches ? e.touches[0] : e;
+        const currentX = touch.clientX;
+        const currentY = touch.clientY;
+        const diffX = currentX - touchStartRef.current.x;
+        const diffY = currentY - touchStartRef.current.y;
+
+        setDragOffset({ x: diffX, y: diffY });
+
+        // Swipe up to show panel
+        if (diffY < -60) {
+            setShowMobileRecordPanel(true);
+            setDragOffset({ x: 0, y: 0 });
+        }
+        // Swipe right to cancel
+        else if (diffX > 60) {
+            setIsCanceling(true);
+            stopRecording(true);
+        }
+    };
+
+    const handleTouchEnd = () => {
+        if (isTV || showMobileRecordPanel || isCanceling) return;
+        if (isRecording) {
+            stopRecording(false);
+        }
+    };
+
+    const handleSendText = () => {
+        if (message.trim()) {
+            if (isTV) {
+                setShowSendConfirmTV(true);
+            } else {
+                onSendMessage(message);
+                setMessage('');
+            }
+        }
+    };
+
+    const formatTime = (seconds) => {
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return `${m}:${s < 10 ? '0' : ''}${s}`;
     };
 
     return (
-        <div className="flex gap-1.5 sm:gap-2 items-end w-full max-w-full relative" data-name="chat-input" data-file="components/ChatInput.js">
-            {showAttachMenu && (
-                <div className={`absolute bottom-16 left-2 right-2 sm:left-4 sm:right-auto rounded-2xl shadow-xl border p-4 flex gap-4 justify-around sm:justify-start animate-fade-in-up z-50 ${ephemeralMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100'}`}>
-                    <button onClick={() => { fileInputRef.current?.click(); setShowAttachMenu(false); }} className="flex flex-col items-center gap-2 group">
-                        <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-                            <div className="icon-image text-2xl"></div>
-                        </div>
-                        <span className={`text-xs font-medium ${ephemeralMode ? 'text-gray-300' : 'text-gray-600'}`}>Mídia</span>
+        <div className="bg-white border-t p-3 relative">
+            {showSendConfirmTV && isTV && (
+                <div className="absolute bottom-full left-0 w-full p-6 bg-gray-900 text-white flex justify-center items-center gap-6 z-50 shadow-2xl rounded-t-2xl">
+                    <p className="text-xl font-bold">Enviar mensagem?</p>
+                    <button 
+                        className="tv-focusable bg-indigo-600 px-6 py-3 rounded-xl font-bold hover:bg-indigo-700"
+                        onClick={() => { onSendMessage(message); setMessage(''); setShowSendConfirmTV(false); }}
+                        autoFocus
+                    >
+                        Enviar
                     </button>
-                    <button onClick={() => { setShowCamera(true); setShowAttachMenu(false); }} className="flex flex-col items-center gap-2 group">
-                        <div className="w-12 h-12 rounded-full bg-pink-100 text-pink-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-                            <div className="icon-camera text-2xl"></div>
-                        </div>
-                        <span className={`text-xs font-medium ${ephemeralMode ? 'text-gray-300' : 'text-gray-600'}`}>Câmera</span>
-                    </button>
-                    <button onClick={() => { fileInputRef.current?.click(); setShowAttachMenu(false); }} className="flex flex-col items-center gap-2 group">
-                        <div className="w-12 h-12 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-                            <div className="icon-file-text text-2xl"></div>
-                        </div>
-                        <span className={`text-xs font-medium ${ephemeralMode ? 'text-gray-300' : 'text-gray-600'}`}>Documento</span>
+                    <button 
+                        className="tv-focusable bg-gray-700 px-6 py-3 rounded-xl font-bold hover:bg-gray-600"
+                        onClick={() => setShowSendConfirmTV(false)}
+                    >
+                        Cancelar
                     </button>
                 </div>
             )}
-            
-            <input type="file" ref={fileInputRef} className="hidden" accept="image/*, audio/*, video/*, application/pdf" onChange={(e) => {
-                if (e.target.files[0]) sendMediaFile(e.target.files[0], e.target.files[0].type.startsWith('image/') ? 'image' : 'file');
-            }} />
-            
-            <div className={`flex-1 min-w-0 rounded-3xl flex items-center px-1 sm:px-2 min-h-[50px] ${ephemeralMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
-                <button onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowGifPicker(false); setShowAttachMenu(false); }} className={`p-1.5 sm:p-2.5 rounded-full flex-shrink-0 transition-colors ${ephemeralMode ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-indigo-600'}`}>
-                    <div className="icon-smile text-xl"></div>
-                </button>
 
-                <button onClick={() => { setShowGifPicker(!showGifPicker); setShowEmojiPicker(false); setShowAttachMenu(false); }} className={`p-1.5 sm:p-2.5 rounded-full flex-shrink-0 transition-colors ${ephemeralMode ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-indigo-600'}`}>
-                    <div className="icon-sticker text-xl"></div>
-                </button>
-                
-                <button onClick={() => { setShowAttachMenu(!showAttachMenu); setShowEmojiPicker(false); setShowGifPicker(false); }} className={`p-1.5 sm:p-2.5 rounded-full flex-shrink-0 transition-colors ${ephemeralMode ? 'text-gray-400 hover:text-white hover:bg-gray-600' : 'text-gray-500 hover:text-indigo-600 hover:bg-gray-200'}`}>
-                    <div className="icon-paperclip text-xl"></div>
-                </button>
-                
-                <input 
-                    type="text" 
-                    value={localMessageInput}
-                    onChange={(e) => {
-                        setLocalMessageInput(e.target.value);
-                        
-                        let targetId = chat.targetId || (chat.id.replace(user.id, '').replace('_', ''));
-                        if (window.ChatP2P && chat.type !== 'group' && targetId) {
-                            window.ChatP2P.sendTyping(user.id, targetId, true);
-                        }
+            {showMobileRecordPanel && !isTV ? (
+                <div className="absolute bottom-0 left-0 w-full h-full bg-white flex items-center justify-between px-4 z-20 animate-in slide-in-from-bottom-2 shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
+                    <div className="flex items-center gap-3">
+                        <div className={`w-3 h-3 rounded-full ${isRecordingPaused ? 'bg-orange-500' : 'bg-red-500 animate-pulse'}`}></div>
+                        <span className="font-mono font-bold text-lg w-16">{formatTime(recordingTime)}</span>
+                    </div>
+                    <div className="flex items-center gap-6">
+                        <button onClick={() => stopRecording(true)} className="text-red-500 flex flex-col items-center hover:bg-red-50 p-2 rounded-xl transition-colors">
+                            <div className="icon-trash text-2xl"></div>
+                            <span className="text-xs font-bold mt-1">Apagar</span>
+                        </button>
+                        {isRecordingPaused ? (
+                            <button onClick={resumeRecording} className="text-indigo-600 flex flex-col items-center hover:bg-indigo-50 p-2 rounded-xl transition-colors">
+                                <div className="icon-play text-3xl"></div>
+                                <span className="text-xs font-bold mt-1">Continuar</span>
+                            </button>
+                        ) : (
+                            <button onClick={pauseRecording} className="text-orange-500 flex flex-col items-center hover:bg-orange-50 p-2 rounded-xl transition-colors">
+                                <div className="icon-pause text-3xl"></div>
+                                <span className="text-xs font-bold mt-1">Pausar</span>
+                            </button>
+                        )}
+                        <button onClick={() => stopRecording(false)} className="text-white flex flex-col items-center bg-indigo-600 hover:bg-indigo-700 shadow-md p-3 rounded-full h-14 w-14 justify-center transition-colors">
+                            <div className="icon-send text-xl ml-1"></div>
+                        </button>
+                    </div>
+                </div>
+            ) : null}
 
-                        if (db) {
-                            const basePath = refPath.split('/messages')[0];
-                            db.ref(`${basePath}/typing/${user.id}`).set(true);
-                            if (typingTimer.current) clearTimeout(typingTimer.current);
-                            typingTimer.current = setTimeout(() => {
-                                db.ref(`${basePath}/typing/${user.id}`).remove();
-                                if (window.ChatP2P && chat.type !== 'group' && targetId) {
-                                    window.ChatP2P.sendTyping(user.id, targetId, false);
-                                }
-                            }, 2000);
-                        }
-                    }}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                    placeholder={ephemeralMode ? "Secreta..." : "Mensagem"} 
-                    className={`flex-1 min-w-0 w-full bg-transparent border-none px-1 sm:px-2 py-3 outline-none text-sm sm:text-base ${ephemeralMode ? 'text-white placeholder-gray-400' : 'text-gray-800 placeholder-gray-500'}`}
-                />
+            <div className={`flex items-end gap-2 ${showMobileRecordPanel ? 'invisible' : ''}`}>
+                <div className="flex-1 bg-gray-100 rounded-2xl flex items-end">
+                    <textarea 
+                        value={message}
+                        onChange={(e) => setMessage(e.target.value)}
+                        placeholder="Mensagem..."
+                        className="w-full bg-transparent border-none focus:ring-0 resize-none p-3 max-h-32 text-[15px] outline-none tv-focusable"
+                        rows="1"
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                handleSendText();
+                            }
+                        }}
+                    />
+                </div>
+                
+                {message.trim() ? (
+                    <button 
+                        onClick={handleSendText}
+                        className="bg-indigo-600 text-white w-12 h-12 rounded-full flex items-center justify-center hover:bg-indigo-700 transition-colors flex-shrink-0 tv-focusable outline-none shadow-md"
+                    >
+                        <div className="icon-send text-xl ml-1"></div>
+                    </button>
+                ) : (
+                    <div className="relative">
+                        {isRecording && !isTV && (
+                            <div className="absolute right-16 top-1/2 -translate-y-1/2 whitespace-nowrap flex items-center gap-6 animate-in fade-in pointer-events-none">
+                                <div className="text-gray-500 text-sm flex items-center gap-2 animate-pulse bg-white/90 px-3 py-1 rounded-full shadow-sm">
+                                    <div className="icon-arrow-right"></div>
+                                    <span className="font-medium">Arraste para cancelar</span>
+                                </div>
+                                <div className="text-gray-500 flex flex-col items-center text-xs animate-bounce bg-white/90 px-2 py-1 rounded-lg shadow-sm">
+                                    <div className="icon-arrow-up"></div>
+                                    <span className="font-bold">Painel</span>
+                                </div>
+                            </div>
+                        )}
+                        <button 
+                            id="btn-record-audio"
+                            onKeyDown={handleTVKeyDown}
+                            onKeyUp={handleTVKeyUp}
+                            onTouchStart={handleTouchStart}
+                            onTouchMove={handleTouchMove}
+                            onTouchEnd={handleTouchEnd}
+                            onMouseDown={(e) => !isTV && handleTouchStart(e)}
+                            onMouseMove={(e) => !isTV && handleTouchMove(e)}
+                            onMouseUp={(e) => !isTV && handleTouchEnd(e)}
+                            onMouseLeave={(e) => !isTV && isRecording && handleTouchEnd(e)}
+                            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all flex-shrink-0 tv-focusable outline-none ${isRecording ? 'bg-red-500 text-white scale-[1.3] shadow-lg z-10' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                            style={{ 
+                                transform: dragOffset.x || dragOffset.y ? `translate(${dragOffset.x}px, ${dragOffset.y}px) scale(1.3)` : '',
+                                touchAction: 'none'
+                            }}
+                        >
+                            <div className="icon-mic text-xl"></div>
+                        </button>
+                    </div>
+                )}
             </div>
-            
-            {localMessageInput.trim().length > 0 ? (
-                <button onClick={handleSendMessage} className={`w-12 h-12 shrink-0 text-white rounded-full flex items-center justify-center transition-transform hover:scale-105 shadow-md ${ephemeralMode ? 'bg-purple-600 hover:bg-purple-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
-                    <div className="icon-send text-xl ml-1"></div>
-                </button>
-            ) : (
-                <button 
-                    onMouseDown={startRecording} onMouseUp={stopRecording} onMouseLeave={stopRecording} onTouchStart={startRecording} onTouchEnd={stopRecording}
-                    className={`w-12 h-12 shrink-0 rounded-full flex items-center justify-center transition-transform hover:scale-105 shadow-md ${recording ? 'bg-red-500 text-white animate-pulse' : (ephemeralMode ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-indigo-600 text-white hover:bg-indigo-700')}`}
-                >
-                    <div className="icon-mic text-xl"></div>
-                </button>
-            )}
         </div>
     );
-}
+};
 window.ChatInput = ChatInput;

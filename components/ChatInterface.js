@@ -193,7 +193,8 @@ function ChatInterface({ user, onLogout }) {
         syncRef.on('child_added', async (snap) => {
             const msg = snap.val();
             if (msg) {
-                const refPath = msg.chatType === 'group' ? `groups/${msg.chatId}/messages` : `chats/${[user.id, msg.targetId].sort().join('_')}/messages`;
+                const directId = (msg.chatId && msg.chatId.startsWith('chat_')) ? msg.chatId : [user.id, msg.targetId || msg.chatId].sort().join('_');
+                const refPath = msg.chatType === 'group' ? `groups/${msg.chatId}/messages` : `chats/${directId}/messages`;
                 const { chatType, chatId, targetId, ...realMsg } = msg;
                 
                 await db.ref(refPath).push(realMsg);
@@ -225,7 +226,8 @@ function ChatInterface({ user, onLogout }) {
     React.useEffect(() => {
         if (!activeChat || !db) return;
         
-        const refPath = activeChat.type === 'group' ? `groups/${activeChat.id}/messages` : `chats/${[user.id, activeChat.id].sort().join('_')}/messages`;
+        const sharedId = (activeChat.id && activeChat.id.startsWith('chat_')) ? activeChat.id : [user.id, activeChat.targetId || activeChat.id].sort().join('_');
+        const refPath = activeChat.type === 'group' ? `groups/${activeChat.id}/messages` : `chats/${sharedId}/messages`;
         const messagesRef = db.ref(refPath);
         
         messagesRef.on('value', (snapshot) => {
@@ -264,7 +266,8 @@ function ChatInterface({ user, onLogout }) {
             timestamp: Date.now()
         });
 
-        const refPath = targetChat.type === 'group' ? `groups/${targetChat.id}/messages` : `chats/${[user.id, targetChat.id].sort().join('_')}/messages`;
+        const sharedId = (targetChat.id && targetChat.id.startsWith('chat_')) ? targetChat.id : [user.id, targetChat.targetId || targetChat.id].sort().join('_');
+        const refPath = targetChat.type === 'group' ? `groups/${targetChat.id}/messages` : `chats/${sharedId}/messages`;
         await db.ref(refPath).push({
             senderId: user.id,
             senderName: user.name,
@@ -332,7 +335,22 @@ function ChatInterface({ user, onLogout }) {
                 }
                 const targetData = data[targetId];
                 
-                await db.ref(`users/${user.id}/chats/${targetId}`).set({
+                // Check if chat already exists
+                let existingChatId = null;
+                const myChatsSnap = await db.ref(`users/${user.id}/chats`).once('value');
+                if (myChatsSnap.exists()) {
+                    const myChats = myChatsSnap.val();
+                    for (const [key, chatData] of Object.entries(myChats)) {
+                        if (chatData.type === 'direct' && chatData.targetId === targetId) {
+                            existingChatId = key;
+                            break;
+                        }
+                    }
+                }
+
+                const chatId = existingChatId || `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+                await db.ref(`users/${user.id}/chats/${chatId}`).set({
                     name: targetData.name || targetData.username || 'Usuário',
                     type: 'direct',
                     timestamp: Date.now(),
@@ -340,7 +358,7 @@ function ChatInterface({ user, onLogout }) {
                     avatar: targetData.profilePicture || null
                 });
                 
-                await db.ref(`users/${targetId}/chats/${user.id}`).set({
+                await db.ref(`users/${targetId}/chats/${chatId}`).set({
                     name: user.name || allUsersData[user.id]?.username || 'Usuário',
                     type: 'direct',
                     timestamp: Date.now(),
@@ -361,8 +379,8 @@ function ChatInterface({ user, onLogout }) {
 
     const getEncryptionKey = (chatId, type, targetId) => {
         if (type === 'group') return chatId;
-        const target = targetId || chatId.replace(user.id, '').replace('_', '');
-        return [user.id, target].sort().join('_');
+        if (chatId && chatId.startsWith('chat_')) return chatId;
+        return [user.id, targetId || chatId].sort().join('_');
     };
 
     const renderLastMessage = (chat) => {
@@ -429,6 +447,10 @@ function ChatInterface({ user, onLogout }) {
         setContextMenu(null);
     };
 
+    const [selectedMsgForDeletion, setSelectedMsgForDeletion] = React.useState(null);
+    const [showRecordingPanel, setShowRecordingPanel] = React.useState(false);
+    const [isRecordingSwipeCancelled, setIsRecordingSwipeCancelled] = React.useState(false);
+
     const sendMessage = async () => {
         if (!messageInput.trim() || !activeChat || !db) return;
         
@@ -475,7 +497,7 @@ function ChatInterface({ user, onLogout }) {
             
             const targetId = activeChat.targetId || activeChat.id;
             if (targetId !== user.id) {
-                await db.ref(`users/${targetId}/chats/${user.id}`).update(chatUpdate);
+                await db.ref(`users/${targetId}/chats/${activeChat.id}`).update(chatUpdate);
             }
         }
         
@@ -671,9 +693,20 @@ function ChatInterface({ user, onLogout }) {
                                     if(isBlocked) return null;
 
                                     return (
-                                        <div key={chat.id} onClick={() => {
-                                            if (chat.type === 'community') window.location.href = `community.html?commId=${chat.id}`;
-                                            else window.location.href = `chat.html?chatId=${chat.id}`;
+                                        <div key={chat.id} onClick={async () => {
+                                            if (chat.type === 'community') {
+                                                window.location.href = `community.html?commId=${chat.id}`;
+                                            } else {
+                                                // Create a deterministic aliasId based on user.id and chat.id
+                                                let aliasId = window.CryptoJS 
+                                                    ? window.CryptoJS.SHA256(user.id + "_" + chat.id).toString(window.CryptoJS.enc.Hex).substring(0, 16)
+                                                    : btoa(user.id + "_" + chat.id).replace(/[^a-zA-Z0-9]/g, '').substring(0, 16);
+                                                
+                                                await db.ref(`users/${user.id}/chats/${chat.id}`).update({ aliasId });
+                                                await db.ref(`chat_aliases/${aliasId}`).set({ realId: chat.id });
+                                                
+                                                window.location.href = `chat.html?c=${aliasId}`;
+                                            }
                                         }} className="p-3 mx-2 my-1 bg-white rounded-xl border border-gray-100 cursor-pointer hover:bg-indigo-50 flex items-center gap-4 transition-all group shadow-sm relative">
                                             {JSON.parse(localStorage.getItem('lockedChats') || '{}')[chat.id] && <div className="absolute right-4 top-1/2 -translate-y-1/2 icon-lock text-gray-400"></div>}
                                             <div className="relative cursor-pointer hover:scale-105 transition-transform" onClick={(e) => { e.stopPropagation(); setQuickActionChat(chat); }}>
@@ -1123,7 +1156,19 @@ function ChatInterface({ user, onLogout }) {
             {quickActionChat && (
                 <div className="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setQuickActionChat(null)}>
                     <div className="bg-white rounded-3xl shadow-2xl w-64 overflow-hidden animate-fade-in-up border border-gray-100" onClick={e => e.stopPropagation()}>
-                        <div className="w-full h-64 bg-gray-100 relative group cursor-pointer" onClick={() => { window.location.href = quickActionChat.type === 'community' ? `community.html?commId=${quickActionChat.id}` : `chat.html?chatId=${quickActionChat.id}` }}>
+                        <div className="w-full h-64 bg-gray-100 relative group cursor-pointer" onClick={async () => { 
+                            if (quickActionChat.type === 'community') {
+                                window.location.href = `community.html?commId=${quickActionChat.id}`;
+                            } else {
+                                let aliasId = window.CryptoJS 
+                                    ? window.CryptoJS.SHA256(user.id + "_" + quickActionChat.id).toString(window.CryptoJS.enc.Hex).substring(0, 16)
+                                    : btoa(user.id + "_" + quickActionChat.id).replace(/[^a-zA-Z0-9]/g, '').substring(0, 16);
+                                
+                                await db.ref(`users/${user.id}/chats/${quickActionChat.id}`).update({ aliasId });
+                                await db.ref(`chat_aliases/${aliasId}`).set({ realId: quickActionChat.id });
+                                window.location.href = `chat.html?c=${aliasId}`;
+                            }
+                        }}>
                             {quickActionChat.type === 'community' ? (
                                 <div className="w-full h-full bg-gradient-to-br from-blue-600 to-indigo-800 flex items-center justify-center text-white">
                                     <div className="icon-network text-6xl"></div>
@@ -1140,7 +1185,19 @@ function ChatInterface({ user, onLogout }) {
                             </div>
                         </div>
                         <div className="flex justify-around items-center p-4 bg-white border-t border-gray-50">
-                            <button onClick={() => { window.location.href = quickActionChat.type === 'community' ? `community.html?commId=${quickActionChat.id}` : `chat.html?chatId=${quickActionChat.id}` }} className="w-12 h-12 flex items-center justify-center rounded-full hover:bg-indigo-50 text-indigo-600 transition-colors" title="Conversar">
+                            <button onClick={async () => { 
+                                if (quickActionChat.type === 'community') {
+                                    window.location.href = `community.html?commId=${quickActionChat.id}`;
+                                } else {
+                                    let aliasId = window.CryptoJS 
+                                        ? window.CryptoJS.SHA256(user.id + "_" + quickActionChat.id).toString(window.CryptoJS.enc.Hex).substring(0, 16)
+                                        : btoa(user.id + "_" + quickActionChat.id).replace(/[^a-zA-Z0-9]/g, '').substring(0, 16);
+                                    
+                                    await db.ref(`users/${user.id}/chats/${quickActionChat.id}`).update({ aliasId });
+                                    await db.ref(`chat_aliases/${aliasId}`).set({ realId: quickActionChat.id });
+                                    window.location.href = `chat.html?c=${aliasId}`;
+                                }
+                            }} className="w-12 h-12 flex items-center justify-center rounded-full hover:bg-indigo-50 text-indigo-600 transition-colors" title="Conversar">
                                 <div className="icon-message-circle text-2xl"></div>
                             </button>
                             {quickActionChat.type !== 'community' && (

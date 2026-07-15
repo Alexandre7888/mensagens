@@ -110,10 +110,13 @@ function InvitePage() {
 
                 const chatId = existingChatId || `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                 
+                const aliasId = `c_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
                 await db.ref(`users/${user.id}/chats/${chatId}`).update({
                     name: targetData.name || targetData.username || 'Usuário',
                     type: 'direct',
                     targetId: targetData.id,
+                    aliasId: aliasId,
                     timestamp: Date.now()
                 });
 
@@ -124,7 +127,11 @@ function InvitePage() {
                     timestamp: Date.now()
                 });
 
-                window.location.href = `chat.html?chatId=${chatId}`;
+                await db.ref(`chat_aliases/${aliasId}`).set({ realId: chatId });
+
+                // Remove o ID do convite da URL mascarando para que pareça que foi instantâneo
+                window.history.replaceState(null, '', `chat.html?c=${aliasId}`);
+                window.location.href = `chat.html?c=${aliasId}`;
             }
         } catch (err) {
             console.error(err);
