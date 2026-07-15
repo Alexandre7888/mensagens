@@ -32,11 +32,22 @@ function ChatApp() {
           await window.ModerationSystem.init();
         }
         const params = new URLSearchParams(window.location.search);
-        const chatId = params.get("chatId");
+        let chatId = params.get("chatId");
+        const aliasId = params.get("c");
 
-        if (!chatId) {
+        if (!chatId && !aliasId) {
           window.location.href = "index.html";
           return;
+        }
+
+        if (aliasId && window.firebaseDB) {
+            const aliasSnap = await window.firebaseDB.ref(`chat_aliases/${aliasId}`).once('value');
+            if (aliasSnap.exists()) {
+                chatId = aliasSnap.val().realId;
+            } else {
+                window.location.href = "index.html";
+                return;
+            }
         }
 
         const userKey = localStorage.getItem("userkey");
@@ -80,6 +91,18 @@ function ChatApp() {
             window.location.href = "index.html";
             return;
           }
+
+          // If accessed via chatId, mask it in URL
+          if (!aliasId) {
+              let existingAlias = chatData.aliasId;
+              if (!existingAlias) {
+                  existingAlias = `c_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                  await window.firebaseDB.ref(`users/${uid}/chats/${chatId}`).update({ aliasId: existingAlias });
+                  await window.firebaseDB.ref(`chat_aliases/${existingAlias}`).set({ realId: chatId });
+              }
+              window.history.replaceState(null, '', `chat.html?c=${existingAlias}`);
+          }
+
           setChatInfo({ id: chatId, type: chatData.type, name: chatData.name || 'Chat' });
         } else {
           window.location.href = "index.html";

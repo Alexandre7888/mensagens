@@ -157,6 +157,10 @@ function App() {
         
         setUserData(combinedData);
         window.currentUserData = combinedData;
+        
+        if (window.SyncManager) {
+            window.appSyncManager = new window.SyncManager(combinedData.uid || combinedData.userKey, 'mobile', null);
+        }
 
         if (!firebaseData || !firebaseData.profilePicture) {
           setAppState('profile_setup');
