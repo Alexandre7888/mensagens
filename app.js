@@ -209,6 +209,23 @@ function App() {
           const joinGroup = params.get("joinGroup");
           const joinComm = params.get("joinComm");
           const addUser = params.get("addUser");
+          const msg = params.get("msg");
+          const msguser = params.get("msguser");
+
+          if (msg && !msguser) {
+              localStorage.setItem("pending_forward_msg", msg);
+          }
+          
+          if (msguser && msg && window.firebaseDB) {
+              const cleanUser = msguser.replace('@', '').toLowerCase();
+              const snap = await window.firebaseDB.ref('users').orderByChild('username').equalTo(cleanUser).once('value');
+              if (snap.exists()) {
+                  const targetId = Object.keys(snap.val())[0];
+                  localStorage.setItem("pending_draft_msg", msg);
+                  window.location.href = `chat.html?chatId=${targetId}`;
+                  return;
+              }
+          }
           
           if (addUser && window.firebaseDB) {
             if (addUser !== (combinedData.uid || combinedData.userKey)) {
