@@ -182,6 +182,21 @@ function SettingsMenu({ isOpen, onClose }) {
                                             }
                                         }} className="w-5 h-5 accent-indigo-600" />
                                     </label>
+
+                                    <label className="flex items-center justify-between cursor-pointer">
+                                        <div className="flex flex-col">
+                                            <span className="font-medium text-gray-700 text-sm">Mostrar status online</span>
+                                            <span className="text-xs text-gray-500">Exibir "Online" e visto por último</span>
+                                        </div>
+                                        <input type="checkbox" checked={settings.showOnlineStatus !== false} onChange={async e => {
+                                            const val = e.target.checked;
+                                            updateSetting('showOnlineStatus', val);
+                                            if (window.firebaseDB && window.currentUserData) {
+                                                const uid = window.currentUserData.uid || window.currentUserData.userKey;
+                                                await window.firebaseDB.ref(`users/${uid}`).update({ showOnlineStatus: val });
+                                            }
+                                        }} className="w-5 h-5 accent-indigo-600" />
+                                    </label>
                                 </div>
                             </div>
                         </div>

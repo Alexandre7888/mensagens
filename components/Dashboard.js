@@ -146,13 +146,51 @@ function Dashboard({ userData, onLogout }) {
             <span className="text-sm font-medium text-gray-700 mr-2">{userData.nome || 'Usuário'}</span>
           </div>
           
-          <button 
-            onClick={onLogout}
-            className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
-            title="Sair"
-          >
-            <div className="icon-log-out text-xl"></div>
-          </button>
+          <div className="relative group">
+            <button 
+              className="p-2 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors"
+              title="Menu"
+            >
+              <div className="icon-more-vertical text-xl"></div>
+            </button>
+            <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+              <div className="p-2">
+                <button 
+                  onClick={async () => {
+                    if (window.confirm('Deseja atualizar o aplicativo? Isso apagará o código em cache e baixará a versão mais recente do servidor.')) {
+                        if ('caches' in window) {
+                            try {
+                                const cacheNames = await caches.keys();
+                                await Promise.all(cacheNames.map(name => caches.delete(name)));
+                            } catch(e) {}
+                        }
+                        // Limpa registros de cache mas mantém configurações do usuário e mídias
+                        const chavesParaManter = ['userkey', 'tutorialCompleted'];
+                        for (let i = 0; i < localStorage.length; i++) {
+                            const key = localStorage.key(i);
+                            if (key && !chavesParaManter.includes(key) && !key.startsWith('media_')) {
+                                // Pode limpar outras se necessário, mas vamos manter simples
+                            }
+                        }
+                        window.location.reload(true);
+                    }
+                  }}
+                  className="w-full text-left px-4 py-3 rounded-lg hover:bg-gray-50 flex items-center gap-3 text-gray-700 font-medium"
+                >
+                  <div className="icon-refresh-cw text-indigo-500"></div>
+                  Atualizar Aplicativo
+                </button>
+                <div className="h-px bg-gray-100 my-1"></div>
+                <button 
+                  onClick={onLogout}
+                  className="w-full text-left px-4 py-3 rounded-lg hover:bg-red-50 flex items-center gap-3 text-red-600 font-medium"
+                >
+                  <div className="icon-log-out text-red-500"></div>
+                  Sair
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </header>
 

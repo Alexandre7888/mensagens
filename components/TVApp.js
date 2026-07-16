@@ -210,6 +210,12 @@ function TVApp() {
                             recognitionRef.current?.start();
                             setIsVoiceToText(true);
                         }
+                    } else if (focusableElements[currentFocus].classList.contains('audio-player-tv')) {
+                        const audioEl = focusableElements[currentFocus].querySelector('audio');
+                        if (audioEl) {
+                            if (audioEl.paused) audioEl.play();
+                            else audioEl.pause();
+                        }
                     } else if (focusableElements[currentFocus].id === 'tv-video-player') {
                         const vid = document.getElementById(`tv-video-${activeVideoFeed}`);
                         if (vid) {
@@ -258,8 +264,17 @@ function TVApp() {
     React.useEffect(() => {
         setTimeout(() => {
             const elements = document.querySelectorAll('.tv-focusable:not([disabled])');
-            const hasFocus = document.querySelector('.tv-focused');
+            let hasFocus = document.querySelector('.tv-focused');
             
+            if (showUnlockModal) {
+                const btn = document.getElementById('btn-request-auth') || document.querySelector('.tv-focusable.bg-gray-600');
+                if (btn) {
+                    elements.forEach(el => el.classList.remove('tv-focused'));
+                    btn.classList.add('tv-focused');
+                }
+                return;
+            }
+
             if (showSendConfirmTV && document.getElementById('btn-confirm-send')) {
                 elements.forEach(el => el.classList.remove('tv-focused'));
                 document.getElementById('btn-confirm-send').classList.add('tv-focused');
@@ -273,11 +288,16 @@ function TVApp() {
             }
 
             if (elements.length > 0 && !hasFocus) {
-                elements.forEach(el => el.classList.remove('tv-focused'));
-                elements[0].classList.add('tv-focused');
+                // Tenta focar na última mensagem enviada/recebida se estiver no chat
+                const msgs = document.querySelectorAll('.msg-item');
+                if (msgs.length > 0) {
+                    msgs[msgs.length - 1].classList.add('tv-focused');
+                } else {
+                    elements[0].classList.add('tv-focused');
+                }
             }
         }, 100);
-    }, [appState, currentTab, activeChat, activeVideoFeed, showComments, showSendConfirmTV]);
+    }, [appState, currentTab, activeChat, activeVideoFeed, showComments, showSendConfirmTV, messages.length]);
 
     React.useEffect(() => {
         if (messagesEndRef.current) {
@@ -334,6 +354,25 @@ function TVApp() {
             };
         }
     }, [appState, selectedAccount]);
+
+    // Handle incoming Sync realtime events
+    React.useEffect(() => {
+        const handleRealtimeSync = (e) => {
+            const { chatId, message } = e.detail;
+            if (activeChat && activeChat.id === chatId) {
+                setMessages(prev => {
+                    if (!prev.find(m => m.key === message.key)) {
+                        const merged = [...prev, message].sort((a,b) => a.timestamp - b.timestamp);
+                        localStorage.setItem(`local_history_${activeChat.id}`, JSON.stringify(merged.slice(-2000)));
+                        return merged;
+                    }
+                    return prev;
+                });
+            }
+        };
+        window.addEventListener('sync_realtime_msg', handleRealtimeSync);
+        return () => window.removeEventListener('sync_realtime_msg', handleRealtimeSync);
+    }, [activeChat]);
 
     React.useEffect(() => {
         if (activeChat && selectedAccount && window.firebaseDB) {
@@ -555,6 +594,10 @@ function TVApp() {
                 return merged;
             });
         }
+
+        if (window.tvSyncManager) {
+            window.tvSyncManager.broadcastMessage(activeChat.id, finalMsgData);
+        }
         
         const chatUpdate = { lastMessage: encryptedText, timestamp: Date.now() };
         if (activeChat.type === 'group') {
@@ -644,6 +687,10 @@ function TVApp() {
                             }
                             return prev;
                         });
+                    }
+
+                    if (window.tvSyncManager) {
+                        window.tvSyncManager.broadcastMessage(activeChat.id, finalMsgData);
                     }
                 };
             };
@@ -746,6 +793,66 @@ function TVApp() {
                 <div className="w-full h-full flex gap-12 p-16 pt-[100px] pb-16 px-[100px] bg-transparent relative">
                 
                 {/* Send Confirmation Modal */}
+                {/* Unlock Modal for Private Chats */}
+                {showUnlockModal && (
+                    <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-[100]">
+                        <div className="bg-gray-800 p-8 rounded-3xl text-center shadow-2xl border border-gray-700 w-[500px]">
+                            <div className="icon-lock text-6xl text-indigo-500 mb-6 mx-auto"></div>
+                            <h2 className="text-3xl font-bold mb-4 text-white">Conversa Trancada</h2>
+                            {authRequest ? (
+                                <div>
+                                    <p className="text-gray-400 text-xl mb-4">Solicitação enviada ao seu celular.</p>
+                                    <p className="text-indigo-400 text-lg mb-8 animate-pulse">Aguardando autorização...</p>
+                                </div>
+                            ) : (
+                                <p className="text-gray-400 text-xl mb-8">Esta conversa requer autenticação pelo celular.</p>
+                            )}
+                            
+                            <div className="flex gap-4 justify-center">
+                                {!authRequest && (
+                                    <button id="btn-request-auth" className="tv-focusable bg-indigo-600 px-8 py-4 rounded-xl text-xl font-bold text-white w-full" onClick={() => {
+                                        const db = window.firebaseDB;
+                                        const reqId = `req_${Date.now()}`;
+                                        setAuthRequest(reqId);
+                                        db.ref(`users/${selectedAccount.uid}/authRequests/${reqId}`).set({
+                                            chatId: showUnlockModal.id,
+                                            chatName: showUnlockModal.name,
+                                            deviceId: deviceId,
+                                            status: 'pending',
+                                            timestamp: Date.now(),
+                                            alwaysAllow: false
+                                        });
+
+                                        db.ref(`users/${selectedAccount.uid}/authRequests/${reqId}/status`).on('value', snap => {
+                                            const status = snap.val();
+                                            if (status === 'approved') {
+                                                db.ref(`users/${selectedAccount.uid}/authRequests/${reqId}/status`).off();
+                                                db.ref(`users/${selectedAccount.uid}/authRequests/${reqId}`).remove();
+                                                db.ref(`users/${selectedAccount.uid}/devices/${deviceId}/unlockedChats/${showUnlockModal.id}`).set(true);
+                                                setShowUnlockModal(null);
+                                                setAuthRequest(null);
+                                                setActiveChat(showUnlockModal);
+                                            } else if (status === 'denied') {
+                                                db.ref(`users/${selectedAccount.uid}/authRequests/${reqId}/status`).off();
+                                                setShowUnlockModal(null);
+                                                setAuthRequest(null);
+                                            }
+                                        });
+                                    }}>Solicitar Acesso</button>
+                                )}
+                                <button className="tv-focusable bg-gray-600 px-8 py-4 rounded-xl text-xl font-bold text-white w-full" onClick={() => {
+                                    if (authRequest) {
+                                        window.firebaseDB.ref(`users/${selectedAccount.uid}/authRequests/${authRequest}`).remove();
+                                    }
+                                    setShowUnlockModal(null);
+                                    setAuthRequest(null);
+                                }}>Cancelar</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Send Confirmation Modal */}
                 {showSendConfirmTV && (
                     <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-[100]">
                         <div className="bg-gray-800 p-8 rounded-3xl text-center shadow-2xl border border-gray-700">
@@ -760,9 +867,12 @@ function TVApp() {
 
                 {!isFullScreenMode && (
                     <div className="w-80 bg-gray-800/90 backdrop-blur-md p-8 flex flex-col border border-gray-700/50 rounded-[2rem] z-10 shrink-0 shadow-2xl">
-                        <div className="flex items-center gap-3 mb-6 bg-gray-900/50 p-3 rounded-2xl border border-gray-700/50">
+                        <div className="flex items-center gap-3 mb-4 bg-gray-900/50 p-3 rounded-2xl border border-gray-700/50">
                             {selectedAccount?.foto ? <img src={selectedAccount.foto} className="w-10 h-10 rounded-full object-cover bg-gray-700 border border-gray-600" /> : <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-lg font-bold">{(selectedAccount?.nome || '?').charAt(0).toUpperCase()}</div>}
                             <h2 className="text-lg font-bold truncate text-gray-200">{selectedAccount?.nome}</h2>
+                        </div>
+                        <div className="mb-6">
+                            {window.DeviceSyncStatus && <window.DeviceSyncStatus />}
                         </div>
                         <div className="space-y-3">
                             <button className={`tv-focusable w-full text-left p-4 rounded-xl flex items-center gap-4 transition-colors font-semibold ${currentTab === 'chats' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'text-gray-400 hover:bg-gray-700 hover:text-white'}`} onClick={() => { setActiveChat(null); setActiveVideoFeed(null); setCurrentTab('chats'); }}>
@@ -775,10 +885,29 @@ function TVApp() {
                             </button>
                         </div>
                         <div className="flex-1"></div>
-                        <button className="tv-focusable w-full text-left p-4 rounded-xl flex items-center gap-4 text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors font-semibold" onClick={handleBack}>
-                            <div className="icon-log-out text-xl"></div> 
-                            <span>Trocar Conta</span>
-                        </button>
+                        <div className="space-y-3">
+                            <button 
+                                className="tv-focusable w-full text-left p-4 rounded-xl flex items-center gap-4 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 transition-colors font-semibold" 
+                                onClick={async () => {
+                                    if (window.confirm('Atualizar aplicativo? Isso apagará os códigos cacheados e buscará a versão mais recente do servidor, mantendo seus arquivos.')) {
+                                        if ('caches' in window) {
+                                            try {
+                                                const cacheNames = await caches.keys();
+                                                await Promise.all(cacheNames.map(name => caches.delete(name)));
+                                            } catch(e) {}
+                                        }
+                                        window.location.reload(true);
+                                    }
+                                }}
+                            >
+                                <div className="icon-refresh-cw text-xl"></div> 
+                                <span>Atualizar App</span>
+                            </button>
+                            <button className="tv-focusable w-full text-left p-4 rounded-xl flex items-center gap-4 text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors font-semibold" onClick={handleBack}>
+                                <div className="icon-log-out text-xl"></div> 
+                                <span>Trocar Conta</span>
+                            </button>
+                        </div>
                     </div>
                 )}
                 
@@ -830,10 +959,10 @@ function TVApp() {
                                                 onClick={() => toggleSelection(msg.key)}
                                             >
                                                 {isSelected && (
-                                                    <div className="absolute -top-16 right-0 flex gap-4 bg-gray-800 p-3 rounded-2xl z-20 shadow-2xl border border-gray-700">
+                                                    <div className="absolute -top-20 right-0 flex gap-4 bg-gray-800 p-3 rounded-2xl z-20 shadow-2xl border border-gray-700">
                                                         <button 
                                                             onClick={(e) => { e.stopPropagation(); handleDeleteMessage(msg.key, false); }} 
-                                                            className="text-white hover:text-gray-300 flex items-center justify-center p-3 rounded-xl hover:bg-gray-700" 
+                                                            className="tv-focusable text-white hover:text-gray-300 flex items-center justify-center p-3 rounded-xl hover:bg-gray-700" 
                                                             title="Apagar para mim"
                                                         >
                                                             <div className="icon-trash text-2xl"></div>
@@ -841,7 +970,7 @@ function TVApp() {
                                                         {isMe && (
                                                             <button 
                                                                 onClick={(e) => { e.stopPropagation(); handleDeleteMessage(msg.key, true); }} 
-                                                                className="text-red-500 hover:text-red-400 flex items-center justify-center p-3 rounded-xl hover:bg-gray-700" 
+                                                                className="tv-focusable text-red-500 hover:text-red-400 flex items-center justify-center p-3 rounded-xl hover:bg-gray-700" 
                                                                 title="Apagar para todos"
                                                             >
                                                                 <div className="icon-trash text-2xl"></div>
@@ -852,7 +981,11 @@ function TVApp() {
                                                 
                                                 {!isMe && activeChat.type === 'group' && <span className="block text-sm font-bold text-indigo-400 mb-1">{msg.senderName}</span>}
                                                 {msg.type === 'text' && <p className="text-xl leading-relaxed">{textContent}</p>}
-                                                {msg.type === 'audio' && window.CustomAudioPlayer ? <window.CustomAudioPlayer src={msg.fileData} isOwn={isMe} /> : null}
+                                                {msg.type === 'audio' && window.CustomAudioPlayer ? (
+                                                    <div className="tv-focusable audio-player-tv outline-none mt-2 p-1 rounded-xl" tabIndex="0">
+                                                        <window.CustomAudioPlayer src={msg.fileData} isOwn={isMe} />
+                                                    </div>
+                                                ) : null}
                                                 {msg.type === 'image' && <img src={msg.fileData} className="max-w-full rounded-xl max-h-96 object-contain" />}
                                                 {msg.type === 'video' && <video src={msg.fileData} controls className="max-w-full rounded-xl max-h-96" />}
                                             </div>

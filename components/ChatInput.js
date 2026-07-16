@@ -1,5 +1,13 @@
 const ChatInput = ({ onSendMessage, onSendAudio, isTV = false }) => {
     const [message, setMessage] = React.useState('');
+
+    React.useEffect(() => {
+        const draft = localStorage.getItem("pending_draft_msg");
+        if (draft) {
+            setMessage(draft);
+            localStorage.removeItem("pending_draft_msg");
+        }
+    }, []);
     const [isRecording, setIsRecording] = React.useState(false);
     const [recordingTime, setRecordingTime] = React.useState(0);
     const [showMobileRecordPanel, setShowMobileRecordPanel] = React.useState(false);
@@ -148,7 +156,7 @@ const ChatInput = ({ onSendMessage, onSendAudio, isTV = false }) => {
     };
 
     return (
-        <div className="bg-white border-t p-3 relative">
+        <div className="bg-white border-t p-3 pb-4 relative shadow-[0_-4px_10px_rgba(0,0,0,0.02)] z-30">
             {showSendConfirmTV && isTV && (
                 <div className="absolute bottom-full left-0 w-full p-6 bg-gray-900 text-white flex justify-center items-center gap-6 z-50 shadow-2xl rounded-t-2xl">
                     <p className="text-xl font-bold">Enviar mensagem?</p>

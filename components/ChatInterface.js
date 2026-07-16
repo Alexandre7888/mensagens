@@ -43,8 +43,15 @@ function ChatInterface({ user, onLogout }) {
     const [featuredHours, setFeaturedHours] = React.useState(1);
     const [showFeaturedModal, setShowFeaturedModal] = React.useState(false);
     const [tvAuthRequests, setTvAuthRequests] = React.useState([]);
+    const [forwardMsg, setForwardMsg] = React.useState(null);
+    const [forwardSelected, setForwardSelected] = React.useState([]);
 
     React.useEffect(() => {
+        const pendingFwd = localStorage.getItem("pending_forward_msg");
+        if (pendingFwd) {
+            setForwardMsg(pendingFwd);
+            localStorage.removeItem("pending_forward_msg");
+        }
         if (!db || !user) return;
         const localLocked = JSON.parse(localStorage.getItem('lockedChats') || '{}');
         db.ref(`users/${user.id}/lockedChats`).update(localLocked);
@@ -482,7 +489,13 @@ function ChatInterface({ user, onLogout }) {
             timestamp: Date.now()
         };
         
-        await db.ref(refPath).push(msgData);
+        const uniqueKey = db.ref(refPath).push().key;
+        const finalMsgData = { ...msgData, key: uniqueKey };
+        await db.ref(`${refPath}/${uniqueKey}`).set(finalMsgData);
+        
+        if (window.appSyncManager) {
+            window.appSyncManager.broadcastMessage(activeChat.id, finalMsgData);
+        }
         
         // Update last message
         const chatUpdate = { lastMessage: messageInput.trim(), timestamp: Date.now() };
@@ -526,7 +539,13 @@ function ChatInterface({ user, onLogout }) {
                 };
 
                 const refPath = activeChat.type === 'group' ? `groups/${activeChat.id}/messages` : `chats/${[user.id, activeChat.id].sort().join('_')}/messages`;
-                await db.ref(refPath).push(msgData);
+                const uniqueKey = db.ref(refPath).push().key;
+                const finalMsgData = { ...msgData, key: uniqueKey };
+                await db.ref(`${refPath}/${uniqueKey}`).set(finalMsgData);
+
+                if (window.appSyncManager) {
+                    window.appSyncManager.broadcastMessage(activeChat.id, finalMsgData);
+                }
             };
         } catch (e) {
             showToastMessage("Erro ao enviar arquivo", "error");
@@ -547,13 +566,22 @@ function ChatInterface({ user, onLogout }) {
                 reader.onload = async () => {
                     const base64 = reader.result;
                     const refPath = activeChat.type === 'group' ? `groups/${activeChat.id}/messages` : `chats/${[user.id, activeChat.id].sort().join('_')}/messages`;
-                    await db.ref(refPath).push({
+                    
+                    const msgData = {
                         senderId: user.id,
                         senderName: user.name,
                         type: 'audio',
                         fileData: base64,
                         timestamp: Date.now()
-                    });
+                    };
+                    
+                    const uniqueKey = db.ref(refPath).push().key;
+                    const finalMsgData = { ...msgData, key: uniqueKey };
+                    await db.ref(`${refPath}/${uniqueKey}`).set(finalMsgData);
+                    
+                    if (window.appSyncManager) {
+                        window.appSyncManager.broadcastMessage(activeChat.id, finalMsgData);
+                    }
                 };
                 audioChunks.current = [];
             };
@@ -592,8 +620,87 @@ function ChatInterface({ user, onLogout }) {
         }
     };
 
+    const handleForwardSend = async () => {
+        if (!forwardMsg || forwardSelected.length === 0) return;
+        
+        for (const targetId of forwardSelected) {
+            const chat = chats.find(c => c.id === targetId || c.targetId === targetId);
+            if (chat) {
+                const sharedId = (chat.id && chat.id.startsWith('chat_')) ? chat.id : [user.id, chat.targetId || chat.id].sort().join('_');
+                const refPath = chat.type === 'group' ? `groups/${chat.id}/messages` : `chats/${sharedId}/messages`;
+                
+                const msgData = {
+                    senderId: user.id,
+                    senderName: user.name,
+                    type: 'text',
+                    text: forwardMsg,
+                    timestamp: Date.now()
+                };
+                const uniqueKey = db.ref(refPath).push().key;
+                await db.ref(`${refPath}/${uniqueKey}`).set({ ...msgData, key: uniqueKey });
+                
+                const chatUpdate = { lastMessage: forwardMsg, timestamp: Date.now() };
+                if (chat.type === 'group') {
+                    const groupSnap = await db.ref(`groups/${chat.id}/members`).once('value');
+                    const members = groupSnap.val() || {};
+                    for (const uid of Object.keys(members)) {
+                        await db.ref(`users/${uid}/chats/${chat.id}`).update(chatUpdate);
+                    }
+                } else {
+                    await db.ref(`users/${user.id}/chats/${chat.id}`).update(chatUpdate);
+                    const tid = chat.targetId || chat.id;
+                    if (tid !== user.id) {
+                        await db.ref(`users/${tid}/chats/${chat.id}`).update(chatUpdate);
+                    }
+                }
+            }
+        }
+        setForwardMsg(null);
+        setForwardSelected([]);
+        showToastMessage("Mensagem encaminhada!", "success");
+    };
+
     return (
         <div className="flex h-full w-full overflow-hidden bg-white" data-name="chat-interface" data-file="components/ChatInterface.js">
+            {forwardMsg && (
+                <div className="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[200] p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm flex flex-col max-h-[80vh]">
+                        <h3 className="text-xl font-bold mb-4">Encaminhar Mensagem</h3>
+                        <div className="bg-gray-100 p-3 rounded-xl text-sm mb-4 text-gray-700 italic border-l-4 border-indigo-500">"{forwardMsg}"</div>
+                        <p className="text-xs text-gray-500 mb-2">Selecione até 5 contatos:</p>
+                        <div className="flex-1 overflow-y-auto space-y-2 mb-4">
+                            {chats.filter(c => c.type !== 'community').map(c => (
+                                <label key={c.id} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded-lg cursor-pointer border border-gray-100">
+                                    <input 
+                                        type="checkbox" 
+                                        className="w-5 h-5 text-indigo-600"
+                                        checked={forwardSelected.includes(c.id)}
+                                        onChange={(e) => {
+                                            if (e.target.checked) {
+                                                if (forwardSelected.length < 5) setForwardSelected([...forwardSelected, c.id]);
+                                                else showToastMessage("Máximo de 5 contatos!", "error");
+                                            } else {
+                                                setForwardSelected(forwardSelected.filter(id => id !== c.id));
+                                            }
+                                        }}
+                                    />
+                                    <span className="font-medium truncate">{c.name}</span>
+                                </label>
+                            ))}
+                        </div>
+                        <div className="flex justify-between items-center mt-2 pt-4 border-t">
+                            <button onClick={() => { setForwardMsg(null); setForwardSelected([]); }} className="text-gray-500 font-bold px-4 py-2">Cancelar</button>
+                            <button 
+                                onClick={handleForwardSend}
+                                disabled={forwardSelected.length === 0}
+                                className={`px-6 py-2 rounded-xl font-bold text-white transition-colors shadow-lg ${forwardSelected.length > 0 ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-300'}`}
+                            >
+                                Enviar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             <div className="w-full md:w-1/3 md:max-w-sm border-r flex flex-col bg-gray-50 h-full">
                 <div className="p-4 flex justify-between items-center border-b bg-white">
                     <div className="flex items-center gap-3">
@@ -618,6 +725,7 @@ function ChatInterface({ user, onLogout }) {
                         <h2 className="text-xl font-bold text-gray-800 hidden sm:block">Mensagens</h2>
                     </div>
                     <div className="flex gap-2 items-center">
+                        {window.DeviceSyncStatus && <window.DeviceSyncStatus />}
                         <button onClick={() => {
                             if (window.OneSignalDeferred) {
                                 window.OneSignalDeferred.push(function(OneSignal) {

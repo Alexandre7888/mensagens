@@ -1,6 +1,9 @@
 const ChatRoom = ({ messages = [], currentUser, isTV = false, onDeleteMessage }) => {
     const scrollRef = React.useRef(null);
     const [selectedMsgId, setSelectedMsgId] = React.useState(null);
+    const [selectedMessages, setSelectedMessages] = React.useState([]);
+    const [contextMenu, setContextMenu] = React.useState(null);
+    const longPressTimer = React.useRef(null);
     const [showScrollBottom, setShowScrollBottom] = React.useState(false);
     const [showScrollTop, setShowScrollTop] = React.useState(false);
     const prevScrollTop = React.useRef(0);
@@ -72,9 +75,38 @@ const ChatRoom = ({ messages = [], currentUser, isTV = false, onDeleteMessage })
         }
     };
 
+    const handleTouchStart = (e, msgId) => {
+        longPressTimer.current = setTimeout(() => {
+            if (window.onMessageSelect) window.onMessageSelect(msgId);
+        }, 600); // 600ms long press
+    };
+
+    const handleTouchEnd = () => {
+        if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    };
+
+    const handleContextMenu = (e, msg) => {
+        e.preventDefault();
+        setContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            msg: msg
+        });
+    };
+
+    React.useEffect(() => {
+        if (window.selectedMessagesCallback) {
+            window.selectedMessagesCallback(selectedMessages);
+        }
+    }, [selectedMessages]);
+
     const toggleSelection = (e, msgId) => {
         if (e.target.closest('button') || e.target.closest('.h-1\\.5')) return;
-        setSelectedMsgId(prev => prev === msgId ? null : msgId);
+        setSelectedMessages(prev => {
+            if (prev.includes(msgId)) return prev.filter(id => id !== msgId);
+            return [...prev, msgId];
+        });
+        if (window.onMessageSelect) window.onMessageSelect(msgId);
     };
 
     const handleKeyDown = (e, msgId) => {
@@ -94,21 +126,32 @@ const ChatRoom = ({ messages = [], currentUser, isTV = false, onDeleteMessage })
                 {messages.map((msg, index) => {
                     const isOwn = msg.senderId === currentUser?.id || msg.senderId === currentUser?.uid;
                     const msgId = msg.id || msg.key || index;
-                    const isSelected = selectedMsgId === msgId;
+                    const isSelected = selectedMessages.includes(msgId) || selectedMsgId === msgId;
 
                     return (
                         <div 
                             key={msgId}
-                            onClick={(e) => toggleSelection(e, msgId)}
+                            onClick={(e) => {
+                                if (selectedMessages.length > 0 || isTV) {
+                                    toggleSelection(e, msgId);
+                                }
+                            }}
+                            onContextMenu={(e) => handleContextMenu(e, msg)}
+                            onTouchStart={(e) => handleTouchStart(e, msgId)}
+                            onTouchEnd={handleTouchEnd}
+                            onTouchMove={handleTouchEnd}
+                            onMouseDown={(e) => handleTouchStart(e, msgId)}
+                            onMouseUp={handleTouchEnd}
+                            onMouseLeave={handleTouchEnd}
                             onKeyDown={(e) => handleKeyDown(e, msgId)}
-                            className={`msg-item tv-focusable cursor-pointer p-3 max-w-[85%] md:max-w-[70%] rounded-xl relative outline-none transition-all ${isOwn ? 'ml-auto bg-indigo-600 text-white rounded-br-none' : 'mr-auto bg-white text-gray-800 rounded-bl-none shadow-sm'} ${isSelected ? 'ring-4 ring-indigo-400 scale-[1.02] z-10' : ''}`}
+                            className={`msg-item tv-focusable cursor-pointer p-3 max-w-[85%] md:max-w-[70%] rounded-xl relative outline-none transition-all ${isOwn ? 'ml-auto bg-indigo-600 text-white rounded-br-none' : 'mr-auto bg-white text-gray-900 rounded-bl-none shadow-md border border-gray-200'} ${isSelected ? 'ring-4 ring-indigo-400 scale-[1.02] z-10 bg-indigo-100 text-gray-900' : ''}`}
                             tabIndex={isTV ? 0 : -1}
                         >
-                            {isSelected && (
-                                <div className="absolute -top-12 right-0 flex gap-2 bg-gray-800 p-1.5 rounded-xl z-20 shadow-xl border border-gray-700 animate-in fade-in zoom-in duration-200">
+                            {isTV && isSelected && (
+                                <div className="absolute -top-16 right-0 flex gap-2 bg-gray-800 p-2 rounded-xl z-20 shadow-xl border border-gray-700 animate-in fade-in zoom-in duration-200">
                                     <button 
                                         onClick={(e) => { e.stopPropagation(); handleDelete(msgId, false); }} 
-                                        className="text-white hover:text-gray-300 flex items-center justify-center p-2 rounded-lg hover:bg-gray-700 tv-focusable outline-none" 
+                                        className="text-white hover:text-gray-300 flex items-center justify-center p-3 rounded-lg hover:bg-gray-700 tv-focusable outline-none" 
                                         title="Apagar para mim"
                                     >
                                         <div className="icon-trash text-xl"></div>
@@ -116,7 +159,7 @@ const ChatRoom = ({ messages = [], currentUser, isTV = false, onDeleteMessage })
                                     {isOwn && (
                                         <button 
                                             onClick={(e) => { e.stopPropagation(); handleDelete(msgId, true); }} 
-                                            className="text-red-500 hover:text-red-400 flex items-center justify-center p-2 rounded-lg hover:bg-gray-700 tv-focusable outline-none" 
+                                            className="text-red-500 hover:text-red-400 flex items-center justify-center p-3 rounded-lg hover:bg-gray-700 tv-focusable outline-none" 
                                             title="Apagar para todos"
                                         >
                                             <div className="icon-trash text-xl"></div>
@@ -124,14 +167,20 @@ const ChatRoom = ({ messages = [], currentUser, isTV = false, onDeleteMessage })
                                     )}
                                 </div>
                             )}
-                            {msg.type === 'audio' ? (
+                            {msg.isDeleted ? (
+                                <div className="text-[15px] italic text-gray-500 flex items-center gap-2">
+                                    <div className="icon-circle-slash"></div> Mensagem apagada
+                                </div>
+                            ) : msg.type === 'audio' ? (
                                 window.CustomAudioPlayer ? <window.CustomAudioPlayer src={msg.fileData || msg.url} isOwn={isOwn} /> : <div className="text-sm">Áudio</div>
                             ) : msg.type === 'image' ? (
                                 <img src={msg.fileData || msg.url} className="max-w-full rounded-lg max-h-64 object-contain" />
                             ) : msg.type === 'video' ? (
                                 <video src={msg.fileData || msg.url} controls className="max-w-full rounded-lg max-h-64" />
                             ) : (
-                                <div className="text-[15px] leading-relaxed break-words">{msg.text || msg.content}</div>
+                                <div className="text-[15px] leading-relaxed break-words">
+                                    {window.CryptoUtils ? window.CryptoUtils.decrypt(msg.text || msg.content, 'phantora-secret-key-123') : (msg.text || msg.content)}
+                                </div>
                             )}
                         </div>
                     );
@@ -145,6 +194,59 @@ const ChatRoom = ({ messages = [], currentUser, isTV = false, onDeleteMessage })
                 >
                     <div className="icon-arrow-up text-xl"></div>
                 </button>
+            )}
+
+            {contextMenu && (
+                <div 
+                    className="fixed bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden animate-in fade-in zoom-in duration-150"
+                    style={{ top: contextMenu.y, left: contextMenu.x }}
+                >
+                    <div className="p-3 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold">
+                            {(contextMenu.msg.senderName || 'U').charAt(0).toUpperCase()}
+                        </div>
+                        <span className="font-bold text-gray-800 text-sm">{contextMenu.msg.senderName}</span>
+                    </div>
+                    <div className="flex flex-col py-1 min-w-[160px]">
+                        <button 
+                            className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 text-left text-sm font-medium text-gray-700"
+                            onClick={(e) => {
+                                toggleSelection(e, contextMenu.msg.key || contextMenu.msg.id);
+                                setContextMenu(null);
+                            }}
+                        >
+                            <div className="icon-check-square text-indigo-500"></div> Selecionar
+                        </button>
+                        <button 
+                            className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 text-left text-sm font-medium text-gray-700"
+                            onClick={() => setContextMenu(null)}
+                        >
+                            <div className="icon-reply text-indigo-500"></div> Responder
+                        </button>
+                        <button 
+                            className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 text-left text-sm font-medium text-gray-700"
+                            onClick={() => {
+                                navigator.clipboard.writeText(contextMenu.msg.text || '');
+                                setContextMenu(null);
+                            }}
+                        >
+                            <div className="icon-copy text-indigo-500"></div> Copiar
+                        </button>
+                        <button 
+                            className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 text-left text-sm font-medium text-gray-700"
+                            onClick={() => {
+                                window.location.href = `index.html?msg=${encodeURIComponent(contextMenu.msg.text || '')}`;
+                                setContextMenu(null);
+                            }}
+                        >
+                            <div className="icon-forward text-indigo-500"></div> Encaminhar
+                        </button>
+                    </div>
+                </div>
+            )}
+            
+            {contextMenu && (
+                <div className="fixed inset-0 z-40" onClick={() => setContextMenu(null)} onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }}></div>
             )}
 
             {!isTV && showScrollBottom && (
