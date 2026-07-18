@@ -111,6 +111,23 @@ class SyncManager {
         }
     }
 
+    broadcastDelete(chatId, msgId) {
+        const payload = { chatId, msgId, isDelete: true };
+        if (window.dispatchEvent) {
+            window.dispatchEvent(new CustomEvent('sync_realtime_msg', { detail: payload }));
+        }
+        if (this.peer) {
+            const conns = Object.values(this.peer.connections);
+            conns.forEach(connArray => {
+                connArray.forEach(conn => {
+                    if (conn.open) {
+                        conn.send({ type: 'realtime_msg', payload });
+                    }
+                });
+            });
+        }
+    }
+
     registerDevice() {
         if (!window.firebaseDB) return;
         const ref = window.firebaseDB.ref(`users/${this.userId}/activeSyncDevices/${this.deviceType}`);
