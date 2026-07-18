@@ -10,6 +10,7 @@ function SocialNetwork({ user, onClose }) {
     
     // Novas funcionalidades
     const [activeVideoFeed, setActiveVideoFeed] = React.useState(null); // null or starting index
+    const [infiniteFeed, setInfiniteFeed] = React.useState([]); // array of videos for infinite scroll
     const [showVideoComments, setShowVideoComments] = React.useState(null);
     const [searchQuery, setSearchQuery] = React.useState('');
     const [showShareModal, setShowShareModal] = React.useState(false);
@@ -27,6 +28,8 @@ function SocialNetwork({ user, onClose }) {
     const [toast, setToast] = React.useState(null);
     const [now, setNow] = React.useState(Date.now());
     const [following, setFollowing] = React.useState({});
+    const [userInterests, setUserInterests] = React.useState({});
+    const watchTimers = React.useRef({});
 
     // Upload states
     const [isUploading, setIsUploading] = React.useState(false);
@@ -76,7 +79,7 @@ function SocialNetwork({ user, onClose }) {
         }
 
         const postsRef = db.ref('posts');
-        const listener = postsRef.on('value', (snapshot) => {
+        const listener = postsRef.on('value', async (snapshot) => {
             const data = snapshot.val();
             if (data) {
                 const postsList = Object.keys(data).map(key => ({
@@ -86,7 +89,13 @@ function SocialNetwork({ user, onClose }) {
                     hasLiked: data[key].likes ? !!data[key].likes[user.id] : false,
                     commentsCount: data[key].comments ? Object.keys(data[key].comments).length : 0,
                 }));
-                setPosts(postsList);
+                
+                if (window.sortFeedByAlgorithm) {
+                    const sorted = await window.sortFeedByAlgorithm(user.id, postsList);
+                    setPosts([...sorted]);
+                } else {
+                    setPosts(postsList);
+                }
             } else {
                 setPosts([]);
             }
@@ -134,10 +143,10 @@ function SocialNetwork({ user, onClose }) {
             const params = new URLSearchParams(window.location.search);
             const videoId = params.get('v');
             if (videoId) {
-                // Modified to find any post, not just ones matching strict video regex
                 const vPosts = posts.filter(p => p.type === 'video' || (p.mediaUrl && (p.mediaUrl.match(/\.(mp4|webm|ogg|mov)$/i) || p.mediaUrl.includes('file-'))));
                 const idx = vPosts.findIndex(p => p.id === videoId);
                 if (idx !== -1) {
+                    setInfiniteFeed([...vPosts]);
                     setActiveVideoFeed(idx);
                 } else {
                     // If not found in video posts, filter all posts to find it
@@ -164,14 +173,12 @@ function SocialNetwork({ user, onClose }) {
         if (activeVideoFeed !== null && videoContainerRef.current) {
             let observer = null;
             
-            // Timeout para garantir que o layout foi renderizado e as dimensões estão corretas
             const initTimer = setTimeout(() => {
                 const container = videoContainerRef.current;
                 if (!container) return;
                 
                 const videoEl = container.children[activeVideoFeed];
                 if (videoEl) {
-                    // Rola imediatamente para o vídeo clicado
                     container.scrollTo({ top: videoEl.offsetTop, behavior: 'instant' });
                 }
 
@@ -185,6 +192,17 @@ function SocialNetwork({ user, onClose }) {
                             if (video && video.paused) {
                                 video.play().catch(e => console.log("Autoplay bloqueado", e));
                             }
+                            
+                            // Infinite scroll logic: if we are near the end, append more videos
+                            if (idx >= infiniteFeed.length - 2) {
+                                let recommended = window.AlgorithmManager ? window.AlgorithmManager.getRecommendedVideos(user.id, videoPostsRef.current) : videoPostsRef.current;
+                                if (recommended.length === 0) recommended = videoPostsRef.current; // Fallback
+                                
+                                // Generate unique keys for appended videos
+                                const appended = recommended.map((v, i) => ({...v, uniqueKey: `${v.id}_${Date.now()}_${i}`}));
+                                setInfiniteFeed(prev => [...prev, ...appended]);
+                            }
+
                         } else {
                             if (video && !video.paused) {
                                 video.pause();
@@ -196,9 +214,18 @@ function SocialNetwork({ user, onClose }) {
                     threshold: 0.6
                 });
 
-                Array.from(container.children).forEach(child => {
-                    observer.observe(child);
-                });
+                // Observe all current children
+                const observeChildren = () => {
+                    Array.from(container.children).forEach(child => {
+                        observer.observe(child);
+                    });
+                };
+                observeChildren();
+                
+                // Set up mutation observer to watch for new appended children
+                const mutationObserver = new MutationObserver(() => observeChildren());
+                mutationObserver.observe(container, { childList: true });
+
             }, 50);
 
             return () => {
@@ -206,14 +233,13 @@ function SocialNetwork({ user, onClose }) {
                 if (observer) observer.disconnect();
             };
         }
-    }, [activeVideoFeed !== null]);
+    }, [activeVideoFeed !== null, infiniteFeed.length]);
 
     // Update URL when active video changes
     React.useEffect(() => {
         if (posts.length === 0) return;
-        const currentVPosts = videoPostsRef.current;
-        if (activeVideoFeed !== null && currentVPosts[activeVideoFeed]) {
-            const currentVid = currentVPosts[activeVideoFeed].id;
+        if (activeVideoFeed !== null && infiniteFeed[activeVideoFeed]) {
+            const currentVid = infiniteFeed[activeVideoFeed].id;
             const params = new URLSearchParams(window.location.search);
             const fromId = params.get('from');
             const newUrl = `${window.location.origin}${window.location.pathname}?v=${currentVid}${fromId ? `&from=${fromId}` : ''}`;
@@ -498,15 +524,39 @@ function SocialNetwork({ user, onClose }) {
         }
     };
 
-    const handleLike = async (postId, hasLiked) => {
+    const handleLike = async (postId, hasLiked, isInfiniteFeed = false, uniqueKey = null) => {
         const db = window.firebaseDB;
         if (!db) return;
 
+        // Atualização otimista na interface do feed infinito
+        if (isInfiniteFeed && uniqueKey) {
+            setInfiniteFeed(prev => prev.map(p => {
+                if (p.uniqueKey === uniqueKey) {
+                    return {
+                        ...p,
+                        hasLiked: !hasLiked,
+                        likesCount: !hasLiked ? p.likesCount + 1 : Math.max(0, p.likesCount - 1)
+                    };
+                }
+                return p;
+            }));
+        }
+
         const likeRef = db.ref(`posts/${postId}/likes/${user.id}`);
-        if (hasLiked) {
-            await likeRef.remove();
-        } else {
-            await likeRef.set(true);
+        try {
+            if (hasLiked) {
+                await likeRef.remove();
+            } else {
+                await likeRef.set(true);
+                
+                const post = posts.find(p => p.id === postId);
+                if (post && post.hashtags && window.updateAlgorithmProfile) {
+                    window.updateAlgorithmProfile(user.id, 'like', post.hashtags, 2);
+                }
+            }
+        } catch (error) {
+            console.error("Erro ao curtir:", error);
+            showToast("Erro ao processar a curtida.");
         }
     };
 
@@ -912,7 +962,15 @@ function SocialNetwork({ user, onClose }) {
                                 
                                 if (isVideo) {
                                     return (
-                                        <div className="w-full bg-black flex justify-center items-center relative cursor-pointer group" onClick={() => setActiveVideoFeed(videoPosts.findIndex(vp => vp.id === post.id) !== -1 ? videoPosts.findIndex(vp => vp.id === post.id) : 0)}>
+                                        <div className="w-full bg-black flex justify-center items-center relative cursor-pointer group" onClick={() => {
+                                            const idx = videoPosts.findIndex(vp => vp.id === post.id);
+                                            const startIdx = idx !== -1 ? idx : 0;
+                                            
+                                            // Ensure infinite feed starts with our initial list
+                                            const initialList = videoPosts.map(v => ({...v, uniqueKey: v.id}));
+                                            setInfiniteFeed(initialList);
+                                            setActiveVideoFeed(startIdx);
+                                        }}>
                                             <video src={url} playsInline preload="metadata" className="w-full max-h-96 object-cover opacity-90 group-hover:opacity-100 transition"></video>
                                             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                                                 <div className="w-16 h-16 bg-black/50 rounded-full flex items-center justify-center backdrop-blur-sm group-hover:scale-110 transition-transform">
@@ -1133,9 +1191,9 @@ function SocialNetwork({ user, onClose }) {
                     </button>
                     
                     <div ref={videoContainerRef} className="flex-1 w-full h-full snap-y snap-mandatory overflow-y-scroll no-scrollbar bg-black relative">
-                        {videoPosts.map((vPost, index) => {
+                        {infiniteFeed.map((vPost, index) => {
                             return (
-                            <div key={vPost.id} data-index={index} className="w-full h-full snap-start snap-always relative flex items-center justify-center bg-black">
+                            <div key={vPost.uniqueKey || vPost.id} data-index={index} className="w-full h-full snap-start snap-always relative flex items-center justify-center bg-black">
                                 <video 
                                     src={vPost.mediaUrl} 
                                     className="w-full h-full object-contain md:object-cover max-w-md mx-auto pointer-events-none" 
@@ -1205,14 +1263,15 @@ function SocialNetwork({ user, onClose }) {
                                                 )}
                                             </div>
                                             
-                                            <button onClick={() => handleLike(vPost.id, vPost.hasLiked)} className="flex flex-col items-center gap-1 group">
+                                            <button onClick={(e) => { e.stopPropagation(); handleLike(vPost.id, vPost.hasLiked, true, vPost.uniqueKey); }} className="flex flex-col items-center gap-1 group">
                                                 <div className={`w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center group-hover:bg-black/60 transition ${vPost.hasLiked ? 'text-red-500' : 'text-white'}`}>
                                                     <div className={`icon-heart text-2xl ${vPost.hasLiked ? 'fill-current' : ''}`}></div>
                                                 </div>
                                                 <span className="text-xs text-white font-medium">{vPost.likesCount}</span>
                                             </button>
                                             
-                                            <button onClick={() => {
+                                            <button onClick={(e) => {
+                                                e.stopPropagation();
                                                 setShowVideoComments(vPost);
                                             }} className="flex flex-col items-center gap-1 group">
                                                 <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center group-hover:bg-black/60 transition text-white">
@@ -1221,7 +1280,7 @@ function SocialNetwork({ user, onClose }) {
                                                 <span className="text-xs text-white font-medium">{vPost.commentsCount}</span>
                                             </button>
                                             
-                                            <button onClick={() => handleShare(vPost)} className="flex flex-col items-center gap-1 group">
+                                            <button onClick={(e) => { e.stopPropagation(); handleShare(vPost); }} className="flex flex-col items-center gap-1 group">
                                                 <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center group-hover:bg-black/60 transition text-white">
                                                     <div className="icon-share-2 text-2xl"></div>
                                                 </div>

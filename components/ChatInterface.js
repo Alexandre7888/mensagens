@@ -702,7 +702,7 @@ function ChatInterface({ user, onLogout }) {
                 </div>
             )}
             <div className="w-full md:w-1/3 md:max-w-sm border-r flex flex-col bg-gray-50 h-full">
-                <div className="p-4 flex justify-between items-center border-b bg-white">
+                <div className="p-4 pl-16 flex justify-between items-center border-b bg-white relative">
                     <div className="flex items-center gap-3">
                         <div className="relative">
                             {user.avatar ? (

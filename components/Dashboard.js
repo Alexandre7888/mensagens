@@ -123,7 +123,7 @@ function Dashboard({ userData, onLogout }) {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col" data-name="dashboard" data-file="components/Dashboard.js">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
+      <header className="bg-white shadow-sm border-b border-gray-200 px-6 pl-16 py-4 flex items-center justify-between sticky top-0 z-10">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-indigo-600 rounded flex items-center justify-center text-white font-bold">
             C

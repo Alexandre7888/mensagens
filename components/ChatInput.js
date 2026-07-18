@@ -1,4 +1,4 @@
-const ChatInput = ({ onSendMessage, onSendAudio, isTV = false }) => {
+const ChatInput = ({ onSendMessage, onSendAudio, isTV = false, replyingTo, onCancelReply }) => {
     const [message, setMessage] = React.useState('');
 
     React.useEffect(() => {
@@ -157,6 +157,17 @@ const ChatInput = ({ onSendMessage, onSendAudio, isTV = false }) => {
 
     return (
         <div className="bg-white border-t p-3 pb-4 relative shadow-[0_-4px_10px_rgba(0,0,0,0.02)] z-30">
+            {replyingTo && (
+                <div className="mb-2 bg-indigo-50 border-l-4 border-indigo-500 p-2 rounded flex justify-between items-center animate-in fade-in slide-in-from-bottom-2">
+                    <div className="flex-1 min-w-0 pr-2">
+                        <div className="text-xs font-bold text-indigo-700">{replyingTo.senderName}</div>
+                        <div className="text-sm text-gray-600 truncate">{replyingTo.type === 'text' ? (window.CryptoUtils && replyingTo.text && replyingTo.text.startsWith('U2FsdGVkX1') ? window.CryptoUtils.decrypt(replyingTo.text, 'phantora-secret-key-123') : replyingTo.text) : 'Mídia'}</div>
+                    </div>
+                    <button onClick={onCancelReply} className="p-1 rounded-full hover:bg-indigo-100 text-gray-500 shrink-0">
+                        <div className="icon-x"></div>
+                    </button>
+                </div>
+            )}
             {showSendConfirmTV && isTV && (
                 <div className="absolute bottom-full left-0 w-full p-6 bg-gray-900 text-white flex justify-center items-center gap-6 z-50 shadow-2xl rounded-t-2xl">
                     <p className="text-xl font-bold">Enviar mensagem?</p>

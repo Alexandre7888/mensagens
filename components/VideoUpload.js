@@ -31,6 +31,9 @@ function VideoUpload({ user, onClose, onUploadComplete }) {
     const [isUploading, setIsUploading] = React.useState(false);
     const [uploadProgress, setUploadProgress] = React.useState(0);
     const [uploadStatus, setUploadStatus] = React.useState('');
+    const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+    const [aiAnalysis, setAiAnalysis] = React.useState(null);
+    const [isModerationPending, setIsModerationPending] = React.useState(false);
     const [toast, setToast] = React.useState(null);
 
     const containerRef = React.useRef(null);
@@ -74,7 +77,7 @@ function VideoUpload({ user, onClose, onUploadComplete }) {
         setTimeout(() => setToast(null), 3000);
     };
 
-    const handleFileChange = (e) => {
+    const handleFileChange = async (e) => {
         const selected = e.target.files[0];
         if (!selected) return;
         if (!selected.type.startsWith('video/')) {
@@ -86,19 +89,19 @@ function VideoUpload({ user, onClose, onUploadComplete }) {
         if (isMobile) {
             setMobileStep(1); // Go to editor
         }
+        await analyzeWithAI(selected);
     };
 
-    const handleCustomCameraCapture = (capturedFile, type, audio) => {
+    const handleCustomCameraCapture = async (capturedFile, type, audio) => {
         if (capturedFile) {
             setFile(capturedFile);
             setPreviewUrl(URL.createObjectURL(capturedFile));
             if (audio) {
-                // Como o áudio já foi mixado na gravação da câmera,
-                // apenas salvamos a referência para postar, mas não precisamos tocar por cima
                 setSelectedAudio(audio);
-                setOriginalVolume(1); // O vídeo já contém o mix
+                setOriginalVolume(1); 
             }
-            setMobileStep(1); // Go to editor
+            setMobileStep(1); 
+            await analyzeWithAI(capturedFile);
         }
         setShowCustomCamera(false);
     };
@@ -260,6 +263,91 @@ function VideoUpload({ user, onClose, onUploadComplete }) {
         return matches ? matches.map(m => m.toLowerCase()) : [];
     };
 
+    const criarFrames = (file) => {
+        return new Promise((resolve, reject) => {
+            const video = document.createElement('video');
+            video.src = URL.createObjectURL(file);
+            video.muted = true;
+            video.playsInline = true;
+
+            video.onloadedmetadata = () => {
+                const quantidade = 8;
+                const largura = 320;
+                const altura = 180;
+                const canvas = document.createElement('canvas');
+                canvas.width = largura * 4;
+                canvas.height = altura * 2;
+                const ctx = canvas.getContext('2d');
+                let frame = 0;
+
+                function capturar() {
+                    if (frame >= quantidade) {
+                        resolve(canvas.toDataURL('image/jpeg', 0.8));
+                        return;
+                    }
+                    const tempo = (video.duration / quantidade) * frame;
+                    video.currentTime = tempo;
+                    video.onseeked = () => {
+                        ctx.drawImage(video, (frame % 4) * largura, Math.floor(frame / 4) * altura, largura, altura);
+                        frame++;
+                        capturar();
+                    };
+                }
+                capturar();
+            };
+            video.onerror = () => reject(new Error('Erro ao carregar vídeo'));
+            video.load();
+        });
+    };
+
+    const analyzeWithAI = async (file) => {
+        setIsAnalyzing(true);
+        setUploadStatus('Analisando vídeo com IA...');
+        try {
+            let media;
+            let tipo;
+            let prompt;
+            if (file.type.startsWith('video/')) {
+                tipo = 'video';
+                media = await criarFrames(file);
+                prompt = `Você está analisando um VÍDEO representado por uma COLLAGE de 8 frames. Retorne APENAS JSON: {"assunto": "tema", "descricao": "descrição", "categorias": [], "hashtags": ["#exemplo"], "violacao": false}`;
+            } else {
+                tipo = 'imagem';
+                media = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.readAsDataURL(file);
+                });
+                prompt = `Analise esta imagem. Retorne APENAS JSON: {"assunto": "tema", "descricao": "descrição", "categorias": [], "hashtags": ["#exemplo"], "violacao": false}`;
+            }
+
+            const response = await fetch("https://lively-otter-4979.puter.work/api/analyze", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ media, tipo, prompt })
+            });
+            const dados = await response.json();
+            if (dados.sucesso) {
+                setAiAnalysis(dados.resultado);
+                if (dados.resultado.violacao) {
+                    setIsModerationPending(true);
+                    showToast("Conteúdo sinalizado. Será enviado para moderação.");
+                } else {
+                    const tags = (dados.resultado.hashtags || []).join(' ');
+                    setDescription(prev => {
+                        const newDesc = prev ? `${prev}\n\n[IA]: ${dados.resultado.descricao}\n${tags}` : `[IA]: ${dados.resultado.descricao}\n${tags}`;
+                        return newDesc;
+                    });
+                    setTitle(prev => prev || dados.resultado.assunto || '');
+                }
+            }
+        } catch (e) {
+            console.error("Erro na IA:", e);
+        }
+        setIsAnalyzing(false);
+        setUploadStatus('');
+    };
+
     const uploadToBackend = async () => {
         if (!file) {
             showToast("Selecione um vídeo primeiro.");
@@ -315,7 +403,13 @@ function VideoUpload({ user, onClose, onUploadComplete }) {
             
             const db = window.firebaseDB;
             if (db) {
-                const hashtags = extractHashtags(title + " " + description);
+                let hashtags = extractHashtags(title + " " + description);
+                if (aiAnalysis && aiAnalysis.hashtags) {
+                    aiAnalysis.hashtags.forEach(tag => {
+                        const t = tag.toLowerCase();
+                        if (!hashtags.includes(t)) hashtags.push(t);
+                    });
+                }
                 
                 let finalAudioId = null;
                 
@@ -338,7 +432,10 @@ function VideoUpload({ user, onClose, onUploadComplete }) {
                     allowDownload: allowDownload,
                     hashtags: hashtags,
                     audioId: finalAudioId,
-                    overlays: texts // Storing overlay texts to be rendered on playback later if supported
+                    overlays: texts, // Storing overlay texts to be rendered on playback later if supported
+                    status: isModerationPending ? 'pending_moderation' : 'active',
+                    aiSubject: aiAnalysis?.assunto || '',
+                    aiCategories: aiAnalysis?.categorias || []
                 };
                 
                 const postRef = await db.ref('posts').push(newPost);
@@ -370,11 +467,11 @@ function VideoUpload({ user, onClose, onUploadComplete }) {
                 }
                 
                 for (const tag of hashtags) {
-                    await db.ref(`hashtags_pending/${tag.replace('#', '')}`).set({
-                        tag: tag,
-                        postId: postRef.key,
-                        timestamp: Date.now()
-                    });
+                    await db.ref(`hashtags/${tag.replace('#', '')}/${postRef.key}`).set(true);
+                }
+                
+                if (window.updateAlgorithmProfile && hashtags.length > 0) {
+                    window.updateAlgorithmProfile(user.id, 'post', hashtags, 5);
                 }
             }
 
@@ -470,12 +567,12 @@ function VideoUpload({ user, onClose, onUploadComplete }) {
 
                         {/* Video & Canvas Container */}
                         <div className="flex-1 bg-black relative flex items-center justify-center" ref={containerRef}>
-                            <video ref={videoRef} src={previewUrl} className="absolute inset-0 w-full h-full object-contain" autoPlay loop playsInline />
+                            <video ref={videoRef} src={previewUrl} className="absolute inset-0 w-full h-full object-contain" loop playsInline autoPlay muted />
                             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full object-contain pointer-events-none z-10" />
                             
                             {/* Toca o áudio separado apenas se não veio já embutido da câmera, ou se o usuário selecionar um novo aqui */}
                             {selectedAudio && file && !file.name?.startsWith('capture_') && (
-                                <audio ref={el => { if(el) el.volume = musicVolume; }} src={selectedAudio.mediaUrl} autoPlay loop />
+                                <audio ref={el => { if(el) el.volume = musicVolume; }} src={selectedAudio.mediaUrl} loop autoPlay muted />
                             )}
                             
                             {/* Draggable transparent overlays for texts to capture events while displaying in canvas */}
@@ -590,8 +687,12 @@ function VideoUpload({ user, onClose, onUploadComplete }) {
                                     placeholder="Descreva seu vídeo ou adicione um título... #hashtags" 
                                     className="flex-1 bg-transparent border-none outline-none resize-none h-24 text-lg"
                                 />
-                                <div className="w-20 h-28 bg-gray-800 rounded-lg overflow-hidden flex-shrink-0">
-                                    <video src={previewUrl} className="w-full h-full object-cover" />
+                                <div className="w-20 h-28 bg-gray-800 rounded-lg overflow-hidden flex-shrink-0 relative cursor-pointer" onClick={() => {
+                                    const v = document.getElementById('preview-thumb-video');
+                                    if(v) { v.paused ? v.play() : v.pause(); }
+                                }}>
+                                    <video id="preview-thumb-video" src={previewUrl} className="w-full h-full object-cover" loop muted playsInline />
+                                    <div className="absolute inset-0 flex items-center justify-center bg-black/30"><div className="icon-play text-white opacity-50"></div></div>
                                 </div>
                             </div>
 

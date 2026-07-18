@@ -1,4 +1,4 @@
-const ChatRoom = ({ messages = [], currentUser, isTV = false, onDeleteMessage }) => {
+const ChatRoom = ({ messages = [], currentUser, isTV = false, onDeleteMessage, onReply }) => {
     const scrollRef = React.useRef(null);
     const [selectedMsgId, setSelectedMsgId] = React.useState(null);
     const [selectedMessages, setSelectedMessages] = React.useState([]);
@@ -65,7 +65,8 @@ const ChatRoom = ({ messages = [], currentUser, isTV = false, onDeleteMessage })
     }, [isTV]);
 
     const handleDelete = (msgId, forEveryone) => {
-        if (window.confirm(forEveryone ? "Apagar para todos?" : "Apagar para mim?")) {
+        const proceed = isTV ? true : window.confirm(forEveryone ? "Apagar para todos?" : "Apagar para mim?");
+        if (proceed) {
             if (onDeleteMessage) {
                 onDeleteMessage(msgId, forEveryone);
             } else if (window.deleteMessage) {
@@ -100,8 +101,7 @@ const ChatRoom = ({ messages = [], currentUser, isTV = false, onDeleteMessage })
         }
     }, [selectedMessages]);
 
-    const toggleSelection = (e, msgId) => {
-        if (e.target.closest('button') || e.target.closest('.h-1\\.5')) return;
+    const toggleSelection = (msgId) => {
         setSelectedMessages(prev => {
             if (prev.includes(msgId)) return prev.filter(id => id !== msgId);
             return [...prev, msgId];
@@ -132,8 +132,9 @@ const ChatRoom = ({ messages = [], currentUser, isTV = false, onDeleteMessage })
                         <div 
                             key={msgId}
                             onClick={(e) => {
+                                if (e.target.closest('button')) return;
                                 if (selectedMessages.length > 0 || isTV) {
-                                    toggleSelection(e, msgId);
+                                    toggleSelection(msgId);
                                 }
                             }}
                             onContextMenu={(e) => handleContextMenu(e, msg)}
@@ -167,6 +168,12 @@ const ChatRoom = ({ messages = [], currentUser, isTV = false, onDeleteMessage })
                                     )}
                                 </div>
                             )}
+                            {msg.replyTo && (
+                                <div className="mb-2 p-2 rounded bg-black/5 border-l-4 border-indigo-400 text-sm">
+                                    <div className="font-bold text-indigo-700">{msg.replyTo.senderName}</div>
+                                    <div className="truncate text-gray-600 opacity-80">{msg.replyTo.text}</div>
+                                </div>
+                            )}
                             {msg.isDeleted ? (
                                 <div className="text-[15px] italic text-gray-500 flex items-center gap-2">
                                     <div className="icon-circle-slash"></div> Mensagem apagada
@@ -179,7 +186,7 @@ const ChatRoom = ({ messages = [], currentUser, isTV = false, onDeleteMessage })
                                 <video src={msg.fileData || msg.url} controls className="max-w-full rounded-lg max-h-64" />
                             ) : (
                                 <div className="text-[15px] leading-relaxed break-words">
-                                    {window.CryptoUtils ? window.CryptoUtils.decrypt(msg.text || msg.content, 'phantora-secret-key-123') : (msg.text || msg.content)}
+                                    {window.CryptoUtils && msg.text && msg.text.startsWith('U2FsdGVkX1') ? window.CryptoUtils.decrypt(msg.text, 'phantora-secret-key-123') : (msg.text || msg.content)}
                                 </div>
                             )}
                         </div>
@@ -196,57 +203,16 @@ const ChatRoom = ({ messages = [], currentUser, isTV = false, onDeleteMessage })
                 </button>
             )}
 
-            {contextMenu && (
-                <div 
-                    className="fixed bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden animate-in fade-in zoom-in duration-150"
-                    style={{ top: contextMenu.y, left: contextMenu.x }}
-                >
-                    <div className="p-3 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold">
-                            {(contextMenu.msg.senderName || 'U').charAt(0).toUpperCase()}
-                        </div>
-                        <span className="font-bold text-gray-800 text-sm">{contextMenu.msg.senderName}</span>
-                    </div>
-                    <div className="flex flex-col py-1 min-w-[160px]">
-                        <button 
-                            className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 text-left text-sm font-medium text-gray-700"
-                            onClick={(e) => {
-                                toggleSelection(e, contextMenu.msg.key || contextMenu.msg.id);
-                                setContextMenu(null);
-                            }}
-                        >
-                            <div className="icon-check-square text-indigo-500"></div> Selecionar
-                        </button>
-                        <button 
-                            className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 text-left text-sm font-medium text-gray-700"
-                            onClick={() => setContextMenu(null)}
-                        >
-                            <div className="icon-reply text-indigo-500"></div> Responder
-                        </button>
-                        <button 
-                            className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 text-left text-sm font-medium text-gray-700"
-                            onClick={() => {
-                                navigator.clipboard.writeText(contextMenu.msg.text || '');
-                                setContextMenu(null);
-                            }}
-                        >
-                            <div className="icon-copy text-indigo-500"></div> Copiar
-                        </button>
-                        <button 
-                            className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 text-left text-sm font-medium text-gray-700"
-                            onClick={() => {
-                                window.location.href = `index.html?msg=${encodeURIComponent(contextMenu.msg.text || '')}`;
-                                setContextMenu(null);
-                            }}
-                        >
-                            <div className="icon-forward text-indigo-500"></div> Encaminhar
-                        </button>
-                    </div>
-                </div>
-            )}
-            
-            {contextMenu && (
-                <div className="fixed inset-0 z-40" onClick={() => setContextMenu(null)} onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }}></div>
+            {contextMenu && window.MessageActionMenu && (
+                <window.MessageActionMenu 
+                    position={{ x: contextMenu.x, y: contextMenu.y }} 
+                    msg={contextMenu.msg} 
+                    onClose={() => setContextMenu(null)} 
+                    onSelect={(id) => toggleSelection(id)} 
+                    onReply={(msg) => onReply && onReply(msg)}
+                    onCopy={(msg) => navigator.clipboard.writeText(msg.text || '')}
+                    onForward={(msg) => window.location.href = `index.html?msg=${encodeURIComponent(msg.text || '')}`}
+                />
             )}
 
             {!isTV && showScrollBottom && (
