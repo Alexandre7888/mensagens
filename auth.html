@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Carregar auth.txt</title>
+<style>
+html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+}
+iframe {
+    width: 100%;
+    height: 100vh;
+    border: none;
+}
+</style>
+</head>
+<body>
+
+<iframe id="app"></iframe>
+
+<script>
+(async () => {
+    const res = await fetch("https://alexandre7888.github.io/auth.txt");
+    const html = await res.text();
+
+    const iframe = document.getElementById("app");
+    iframe.srcdoc = html;
+})();
+</script>
+
+</body>
+</html>

@@ -145,6 +145,7 @@ function ChatApp() {
   const [messages, setMessages] = React.useState([]);
   const [targetUserStatus, setTargetUserStatus] = React.useState(null);
   const [selectedMessages, setSelectedMessages] = React.useState([]);
+  const [replyingTo, setReplyingTo] = React.useState(null);
 
   React.useEffect(() => {
       window.selectedMessagesCallback = (msgs) => {
@@ -200,8 +201,15 @@ function ChatApp() {
           senderName: userData.name,
           type: 'text',
           text: text.trim(),
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          replyTo: replyingTo ? {
+              id: replyingTo.key || replyingTo.id,
+              senderName: replyingTo.senderName,
+              text: replyingTo.type === 'text' ? replyingTo.text : (replyingTo.type === 'audio' ? 'Áudio' : 'Mídia')
+          } : null
       };
+      
+      setReplyingTo(null);
       
       const uniqueKey = db.ref(refPath).push().key;
       const finalMsgData = { ...msgData, key: uniqueKey };
@@ -251,14 +259,18 @@ function ChatApp() {
 
   React.useEffect(() => {
         const handleRealtimeSync = (e) => {
-            const { chatId, message } = e.detail;
+            const { chatId, message, isDelete, msgId } = e.detail;
             if (chatInfo && chatInfo.id === chatId) {
-                setMessages(prev => {
-                    if (!prev.find(m => m.key === message.key)) {
-                        return [...prev, message].sort((a,b) => a.timestamp - b.timestamp);
-                    }
-                    return prev;
-                });
+                if (isDelete) {
+                    setMessages(prev => prev.filter(m => m.key !== msgId));
+                } else if (message) {
+                    setMessages(prev => {
+                        if (!prev.find(m => m.key === message.key)) {
+                            return [...prev, message].sort((a,b) => a.timestamp - b.timestamp);
+                        }
+                        return prev;
+                    });
+                }
             }
         };
         window.addEventListener('sync_realtime_msg', handleRealtimeSync);
@@ -351,10 +363,10 @@ function ChatApp() {
       )}
 
       <div className="flex-1 overflow-hidden flex flex-col relative">
-          <ChatRoom messages={messages} currentUser={userData} />
+          <ChatRoom messages={messages} currentUser={userData} onReply={(msg) => setReplyingTo(msg)} />
       </div>
 
-      <ChatInput onSendMessage={handleSendMessage} onSendAudio={handleSendAudio} />
+      <ChatInput onSendMessage={handleSendMessage} onSendAudio={handleSendAudio} replyingTo={replyingTo} onCancelReply={() => setReplyingTo(null)} />
 
       <GlobalCallListener user={userData} />
     </div>

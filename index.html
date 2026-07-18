@@ -38,6 +38,9 @@
     <script src="https://resource.trickle.so/vendor_lib/unpkg/react@18/umd/react.production.min.js"></script>
     <script src="https://resource.trickle.so/vendor_lib/unpkg/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://resource.trickle.so/vendor_lib/unpkg/@babel/standalone/babel.min.js"></script>
+
+    <!-- CodeHUB Libraries -->
+    <script src="https://alexandre7888.github.io/protecao.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://resource.trickle.so/vendor_lib/unpkg/lucide-static@0.516.0/font/lucide.css" rel="stylesheet">
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -88,7 +91,13 @@
     </style>
 </head>
 <body>
-    <div id="root"></div>
+    <!-- Barra preta fixa no topo -->
+    <div class="fixed top-0 left-0 w-full h-[90px] bg-black z-[9998]"></div>
+    
+    <!-- Container para o Menu CodeHUB -->
+    <div id="app-menu-root" class="fixed top-1 left-4 z-[10000]"></div>
+    
+    <div id="root" style="padding-top: 90px; min-height: 100vh;"></div>
     <script type="text/javascript">
         var app_url = 'https://encurta.net/';
         var app_api_token = '0a431fa2f98378369a7694568a8699d0d7a3142c';
@@ -119,6 +128,7 @@
     <script type="text/babel" src="components/GlobalCallListener.js"></script>
     <script type="text/babel" src="components/TutorialOverlay.js"></script>
     <script type="text/babel" src="components/CustomMediaPlayers.js"></script>
+    <script type="text/babel" src="utils/menu-init.js"></script>
     <script type="text/babel" src="app.js"></script>
 </body>
 </html>
