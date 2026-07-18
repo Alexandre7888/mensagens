@@ -1,34 +1,415 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-br">
 <head>
-<meta charset="UTF-8">
-<title>Carregar auth.txt</title>
-<style>
-html, body {
-    margin: 0;
-    width: 100%;
-    height: 100%;
-}
-iframe {
-    width: 100%;
-    height: 100vh;
-    border: none;
-}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CodeHub - Autenticação</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Segoe UI',sans-serif;background:linear-gradient(135deg,#0b1120,#1a1f35);display:flex;justify-content:center;align-items:center;min-height:100vh;padding:20px}
+    .auth-container{width:100%;max-width:480px;background:rgba(20,25,45,0.95);border-radius:20px;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.4);border:1px solid rgba(67,97,238,0.2);animation:fadeIn 0.5s}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+    .auth-header{background:linear-gradient(135deg,#4361ee,#7c3aed);color:#fff;padding:25px;text-align:center}
+    .auth-header h1{font-size:24px;margin-bottom:5px}
+    .auth-header p{font-size:13px;opacity:0.9}
+    .account-indicator{background:rgba(0,0,0,0.2);padding:6px 14px;border-radius:20px;display:inline-block;margin-top:8px;font-size:12px}
+    .tabs{display:flex;background:rgba(0,0,0,0.3)}
+    .tab{flex:1;text-align:center;padding:14px;cursor:pointer;font-weight:600;color:#a0b3c9;transition:0.3s;position:relative}
+    .tab.active{color:#fff;background:rgba(67,97,238,0.3)}
+    .tab.active::after{content:'';position:absolute;bottom:0;left:0;width:100%;height:3px;background:#4361ee}
+    .tab-content{padding:25px;display:none}
+    .tab-content.active{display:block}
+    .form-group{margin-bottom:16px}
+    .form-group label{display:block;margin-bottom:6px;font-weight:600;color:#e2e9f0;font-size:13px}
+    .form-control{width:100%;padding:11px 14px;background:rgba(0,0,0,0.3);border:2px solid rgba(67,97,238,0.3);border-radius:8px;font-size:14px;color:#fff;transition:0.3s}
+    .form-control:focus{border-color:#4895ef;outline:none;box-shadow:0 0 0 3px rgba(67,97,238,0.2);background:rgba(0,0,0,0.5)}
+    .form-control::placeholder{color:#6b7280}
+    .btn{width:100%;padding:13px;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;transition:0.3s;display:flex;align-items:center;justify-content:center;gap:8px}
+    .btn-primary{background:linear-gradient(135deg,#4361ee,#7c3aed);color:#fff}
+    .btn-primary:hover{transform:translateY(-2px);box-shadow:0 10px 20px rgba(67,97,238,0.3)}
+    .btn-google{background:#fff;color:#212529;border:1px solid #dee2e6}
+    .btn-google:hover{background:#f8f9fa;transform:translateY(-2px)}
+    .divider{display:flex;align-items:center;margin:18px 0;color:#a0b3c9;font-size:13px}
+    .divider::before,.divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,0.2);margin:0 10px}
+    .error-message{color:#f72585;font-size:12px;display:none;background:rgba(247,37,133,0.1);padding:8px;border-radius:6px;margin-bottom:10px}
+    .error-message.show{display:block}
+    .success-message{color:#4cc9f0;font-size:13px;margin-top:12px;text-align:center;font-weight:600;background:rgba(76,201,240,0.1);padding:8px;border-radius:6px}
+    .footer-text{text-align:center;margin-top:18px;font-size:13px;color:#a0b3c9}
+    .footer-text a{color:#4361ee;text-decoration:none;font-weight:600;cursor:pointer}
+    .header-actions{position:fixed;top:20px;right:20px;z-index:1000}
+    .home-btn{background:rgba(255,255,255,0.1);color:#fff;border:none;padding:10px 20px;border-radius:20px;font-size:14px;cursor:pointer;transition:0.3s;backdrop-filter:blur(10px)}
+    .home-btn:hover{background:rgba(255,255,255,0.2)}
+    .user-type-selector{display:flex;gap:12px;margin-bottom:16px;padding:8px;background:rgba(0,0,0,0.3);border-radius:8px}
+    .user-type-option{flex:1;text-align:center;padding:8px;border:2px solid rgba(67,97,238,0.3);border-radius:8px;cursor:pointer;transition:0.3s;color:#fff;font-size:13px}
+    .user-type-option.selected{border-color:#4361ee;background:rgba(67,97,238,0.3)}
+    .company-fields{display:none}
+    .company-fields.show{display:block}
+    .device-info{background:rgba(0,0,0,0.3);border-radius:8px;padding:8px;margin:15px;font-size:11px;color:#a0b3c9;text-align:center}
+    @media(max-width:480px){.auth-container{border-radius:12px}.auth-header{padding:20px}.tab-content{padding:20px}}
+  </style>
 </head>
 <body>
+  <div class="header-actions"><button class="home-btn" onclick="goToIndex()">🏠 Voltar</button></div>
 
-<iframe id="app"></iframe>
+  <div class="auth-container">
+    <div class="auth-header">
+      <h1>Bem-vindo ao CodeHub</h1>
+      <p>Autenticação Multi-Conta</p>
+      <div class="account-indicator">👤 Contas: <span id="accountCountNumber">0</span>/5</div>
+    </div>
 
-<script>
-(async () => {
-    const res = await fetch("https://alexandre7888.github.io/auth.txt");
-    const html = await res.text();
+    <div id="global-error" class="error-message"></div>
+    <div id="global-success" class="success-message" style="display:none;"></div>
 
-    const iframe = document.getElementById("app");
-    iframe.srcdoc = html;
-})();
-</script>
+    <div class="tabs">
+      <div class="tab active" id="tab-login" onclick="switchTab('login')">Entrar</div>
+      <div class="tab" id="tab-register" onclick="switchTab('register')">Criar Conta</div>
+    </div>
 
+    <div id="login-tab" class="tab-content active">
+      <div class="form-group"><label for="login-email">Email</label><input type="email" id="login-email" class="form-control" placeholder="digite seu email"></div>
+      <div class="form-group"><label for="login-password">Senha</label><input type="password" id="login-password" class="form-control" placeholder="digite sua senha"></div>
+      <div id="login-cnpj-group" class="form-group" style="display:none;"><label for="login-cnpj">CNPJ</label><input type="text" id="login-cnpj" class="form-control" placeholder="00.000.000/0000-00" oninput="formatCNPJ(this)"></div>
+      <button class="btn btn-primary" id="login-btn" onclick="login()">🔐 Entrar</button>
+      <div class="divider">ou</div>
+      <button class="btn btn-google" onclick="loginWithGoogle()">🟢 Google</button>
+      <div class="footer-text">Não tem conta? <a onclick="switchTab('register')">Cadastre-se</a></div>
+    </div>
+
+    <div id="register-tab" class="tab-content">
+      <div class="form-group"><label>Tipo de Conta</label>
+        <div class="user-type-selector">
+          <div class="user-type-option selected" data-type="normal" onclick="selectUserType('normal')">👤 Normal</div>
+          <div class="user-type-option" data-type="entrepreneur" onclick="selectUserType('entrepreneur')">🏢 Empreendedor</div>
+        </div>
+      </div>
+      <div class="form-group"><label for="register-username">Usuário</label><input type="text" id="register-username" class="form-control" placeholder="ex: dev123"></div>
+      <div class="form-group"><label for="register-email">Email</label><input type="email" id="register-email" class="form-control" placeholder="seu email"></div>
+      <div class="form-group"><label for="register-password">Senha</label><input type="password" id="register-password" class="form-control" placeholder="mín. 6 caracteres"></div>
+      <div class="form-group"><label for="register-confirm-password">Confirmar</label><input type="password" id="register-confirm-password" class="form-control" placeholder="confirme"></div>
+      <div id="company-fields" class="company-fields">
+        <div class="form-group"><label for="register-company-name">Empresa</label><input type="text" id="register-company-name" class="form-control" placeholder="Nome da empresa"></div>
+        <div class="form-group"><label for="register-cnpj">CNPJ</label><input type="text" id="register-cnpj" class="form-control" placeholder="00.000.000/0000-00" oninput="formatCNPJ(this)"></div>
+      </div>
+      <button class="btn btn-primary" id="register-btn" onclick="register()">✨ Criar Conta</button>
+      <div class="footer-text">Já tem conta? <a onclick="switchTab('login')">Faça login</a></div>
+    </div>
+
+    <div class="device-info" id="deviceInfo"></div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.0/firebase-app.js";
+    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/9.6.0/firebase-auth.js";
+    import { getDatabase, ref, set, get, update } from "https://www.gstatic.com/firebasejs/9.6.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDon4WbCbe4kCkUq-OdLBRhzhMaUObbAfo",
+      authDomain: "html-15e80.firebaseapp.com",
+      databaseURL: "https://html-15e80-default-rtdb.firebaseio.com",
+      projectId: "html-15e80",
+      storageBucket: "html-15e80.firebasestorage.app",
+      messagingSenderId: "1068148640439",
+      appId: "1:1068148640439:web:7cc5bde34f4c5a5ce41b32"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const database = getDatabase(app);
+    const provider = new GoogleAuthProvider();
+
+    let selectedUserType = 'normal';
+    const MAX_ACCOUNTS = 5;
+
+    function generateDeviceId() {
+      let id = localStorage.getItem('codehub_deviceId');
+      if (!id) { id = 'device_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9); localStorage.setItem('codehub_deviceId', id); }
+      return id;
+    }
+    function generateUserKey(uid) { return `${uid}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`; }
+    function generateMasterKey() { return 'master_' + Date.now() + '_' + Math.random().toString(36).substr(2, 12); }
+    function generateAuthToken(uid, email, username, userType, masterKey, companyData = null) {
+      return btoa(unescape(encodeURIComponent(JSON.stringify({
+        uid, email, username, userType, masterKey, companyData,
+        createdAt: Date.now(), expiresAt: null, version: "2.0", isPermanent: true
+      }))));
+    }
+
+    const deviceId = generateDeviceId();
+    document.getElementById('deviceInfo').innerHTML = `📱 ${deviceId.substring(0, 25)}...`;
+    document.getElementById('accountCountNumber').textContent = JSON.parse(localStorage.getItem('codehub_deviceAccounts') || '[]').length;
+
+    window.goToIndex = () => window.location.href = 'index.html';
+    window.switchTab = (id) => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      document.getElementById(`tab-${id}`).classList.add('active');
+      document.getElementById(`${id}-tab`).classList.add('active');
+      document.getElementById('global-error').classList.remove('show');
+      document.getElementById('global-success').style.display = 'none';
+    };
+    window.selectUserType = (type) => {
+      selectedUserType = type;
+      document.querySelectorAll('.user-type-option').forEach(o => o.classList.remove('selected'));
+      document.querySelector(`[data-type="${type}"]`).classList.add('selected');
+      document.getElementById('company-fields').classList.toggle('show', type === 'entrepreneur');
+    };
+    window.formatCNPJ = (input) => {
+      let v = input.value.replace(/\D/g, '');
+      if (v.length > 14) v = v.slice(0, 14);
+      if (v.length > 12) v = v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+      else if (v.length > 8) v = v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})$/, '$1.$2.$3/$4');
+      else if (v.length > 5) v = v.replace(/^(\d{2})(\d{3})(\d{3})$/, '$1.$2.$3');
+      else if (v.length > 2) v = v.replace(/^(\d{2})(\d{3})$/, '$1.$2');
+      input.value = v;
+    };
+    function showError(m) { const e = document.getElementById('global-error'); e.textContent = m; e.classList.add('show'); }
+    function showSuccess(m) { const e = document.getElementById('global-success'); e.textContent = m; e.style.display = 'block'; }
+    function validateCNPJ(cnpj) {
+      cnpj = cnpj.replace(/\D/g, '');
+      if (cnpj.length !== 14 || /^(\d)\1+$/.test(cnpj)) return false;
+      let s = 0, w = 5;
+      for (let i = 0; i < 12; i++) { s += parseInt(cnpj[i]) * w; w = w === 2 ? 9 : w - 1; }
+      let d = 11 - (s % 11); d = d >= 10 ? 0 : d;
+      if (d !== parseInt(cnpj[12])) return false;
+      s = 0; w = 6;
+      for (let i = 0; i < 13; i++) { s += parseInt(cnpj[i]) * w; w = w === 2 ? 9 : w - 1; }
+      d = 11 - (s % 11); d = d >= 10 ? 0 : d;
+      return d === parseInt(cnpj[13]);
+    }
+
+    // ==================== MASTER KEY ====================
+    async function getOrCreateMasterKey() {
+      let mk = localStorage.getItem('codehub_masterKey');
+      if (!mk) {
+        mk = generateMasterKey();
+        localStorage.setItem('codehub_masterKey', mk);
+      }
+      return mk;
+    }
+
+    // ==================== SALVAR NO CAMINHO contas/{masterKey} ====================
+    async function saveAccountsToMasterKey(mk, accountsList) {
+      const accountsObj = {};
+      accountsList.forEach(acc => {
+        accountsObj[acc.uid] = {
+          uid: acc.uid,
+          email: acc.email,
+          username: acc.username,
+          userType: acc.userType || 'normal',
+          userKey: acc.userKey,
+          lastLogin: acc.lastLogin || Date.now(),
+          deviceId: deviceId,
+          masterKey: mk
+        };
+      });
+      await set(ref(database, `contas/${mk}`), accountsObj);
+      console.log('✅ Contas salvas em contas/' + mk);
+    }
+
+    async function addAccountToMasterKey(mk, userData) {
+      const snap = await get(ref(database, `contas/${mk}`));
+      let accounts = snap.exists() ? snap.val() : {};
+      accounts[userData.uid] = {
+        uid: userData.uid,
+        email: userData.email,
+        username: userData.username,
+        userType: userData.userType || 'normal',
+        userKey: userData.userKey,
+        lastLogin: Date.now(),
+        deviceId: deviceId,
+        masterKey: mk
+      };
+      await set(ref(database, `contas/${mk}`), accounts);
+    }
+
+    function redirectAfterAuth(userKey) {
+      showSuccess('✅ Sucesso! Redirecionando...');
+      setTimeout(() => { window.location.href = `index.html?userKey=${userKey}`; }, 1000);
+    }
+
+    // ==================== REGISTRO ====================
+    window.register = async () => {
+      document.getElementById('global-error').classList.remove('show');
+      const username = document.getElementById('register-username').value.trim();
+      const email = document.getElementById('register-email').value.trim();
+      const password = document.getElementById('register-password').value;
+      const confirm = document.getElementById('register-confirm-password').value;
+      let companyName = '', cnpj = '';
+
+      if (selectedUserType === 'entrepreneur') {
+        companyName = document.getElementById('register-company-name').value.trim();
+        cnpj = document.getElementById('register-cnpj').value.trim();
+        if (!companyName) return showError('Nome da empresa obrigatório');
+        if (!cnpj) return showError('CNPJ obrigatório');
+        if (!validateCNPJ(cnpj)) return showError('CNPJ inválido');
+      }
+      if (!username) return showError('Usuário obrigatório');
+      if (!email) return showError('Email obrigatório');
+      if (!password || password.length < 6) return showError('Senha: mín. 6 caracteres');
+      if (password !== confirm) return showError('Senhas não coincidem');
+
+      const localAccounts = JSON.parse(localStorage.getItem('codehub_deviceAccounts') || '[]');
+      if (localAccounts.length >= MAX_ACCOUNTS) return showError('Limite de 5 contas!');
+
+      const btn = document.getElementById('register-btn');
+      btn.disabled = true; btn.textContent = 'Criando...';
+
+      try {
+        const masterKey = await getOrCreateMasterKey();
+        const uc = await createUserWithEmailAndPassword(auth, email, password);
+        const user = uc.user;
+        const userKey = generateUserKey(user.uid);
+        const token = generateAuthToken(user.uid, email, username, selectedUserType, masterKey,
+          selectedUserType === 'entrepreneur' ? { companyName, cnpj } : null);
+
+        const userData = {
+          username, email, userType: selectedUserType, userKey, uid: user.uid,
+          masterKey, createdAt: Date.now(), lastLogin: Date.now(), hasToken: true, deviceId
+        };
+        if (selectedUserType === 'entrepreneur') { userData.companyName = companyName; userData.cnpj = cnpj.replace(/\D/g, ''); }
+
+        await set(ref(database, 'users/' + user.uid), userData);
+        await set(ref(database, `userKeysData/${userKey}`), {
+          authToken: token,
+          authTokenDecoded: { createdAt: Date.now(), email, isPermanent: true, uid: user.uid, userType: selectedUserType, username, masterKey, version: "2.0" },
+          criadoEm: Date.now(), email, hasAuthToken: true, isAnonymous: false, nome: username, uid: user.uid, deviceId, masterKey
+        });
+
+        // Adicionar à masterKey
+        await addAccountToMasterKey(masterKey, userData);
+
+        // localStorage
+        const allLocal = JSON.parse(localStorage.getItem('codehub_deviceAccounts') || '[]');
+        allLocal.push(userData);
+        localStorage.setItem('codehub_deviceAccounts', JSON.stringify(allLocal.slice(0, MAX_ACCOUNTS)));
+        localStorage.setItem('auth_token', token);
+        localStorage.setItem('token_user_id', user.uid);
+        localStorage.setItem('current_userKey', userKey);
+        document.getElementById('accountCountNumber').textContent = allLocal.length;
+
+        redirectAfterAuth(userKey);
+      } catch(e) {
+        showError(e.code === 'auth/email-already-in-use' ? 'Email já em uso' : 'Erro ao criar');
+        btn.disabled = false; btn.textContent = '✨ Criar Conta';
+      }
+    };
+
+    // ==================== LOGIN ====================
+    window.login = async () => {
+      document.getElementById('global-error').classList.remove('show');
+      const email = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+      if (!email) return showError('Email obrigatório');
+      if (!password) return showError('Senha obrigatória');
+
+      const btn = document.getElementById('login-btn');
+      btn.disabled = true; btn.textContent = 'Entrando...';
+
+      try {
+        const masterKey = await getOrCreateMasterKey();
+        const uc = await signInWithEmailAndPassword(auth, email, password);
+        const user = uc.user;
+        const snap = await get(ref(database, 'users/' + user.uid));
+        if (!snap.exists()) { showError('Dados não encontrados'); btn.disabled = false; btn.textContent = '🔐 Entrar'; return; }
+
+        const userData = snap.val();
+        if (userData.userType === 'entrepreneur') {
+          const cnpjInput = document.getElementById('login-cnpj').value.trim();
+          document.getElementById('login-cnpj-group').style.display = 'block';
+          if (!cnpjInput || cnpjInput.replace(/\D/g, '') !== userData.cnpj) {
+            showError('CNPJ inválido'); btn.disabled = false; btn.textContent = '🔐 Entrar'; return;
+          }
+        }
+
+        let userKey = userData.userKey || generateUserKey(user.uid);
+        if (!userData.userKey) await update(ref(database, 'users/' + user.uid), { userKey, masterKey });
+
+        const token = generateAuthToken(user.uid, email, userData.username, userData.userType || 'normal', masterKey,
+          userData.userType === 'entrepreneur' ? { companyName: userData.companyName, cnpj: userData.cnpj } : null);
+
+        await set(ref(database, `userKeysData/${userKey}`), {
+          authToken: token,
+          authTokenDecoded: { createdAt: Date.now(), email, isPermanent: true, uid: user.uid, userType: userData.userType || 'normal', username: userData.username, masterKey, version: "2.0" },
+          criadoEm: Date.now(), email, hasAuthToken: true, isAnonymous: false, nome: userData.username, uid: user.uid, deviceId, masterKey
+        });
+        await update(ref(database, 'users/' + user.uid), { lastLogin: Date.now(), masterKey });
+
+        const accountData = {
+          uid: user.uid, email, username: userData.username,
+          userType: userData.userType || 'normal', userKey, masterKey, lastLogin: Date.now()
+        };
+
+        // Adicionar à masterKey
+        await addAccountToMasterKey(masterKey, accountData);
+
+        // localStorage
+        const allLocal = JSON.parse(localStorage.getItem('codehub_deviceAccounts') || '[]');
+        const idx = allLocal.findIndex(a => a.uid === user.uid);
+        if (idx >= 0) allLocal[idx] = { ...allLocal[idx], ...accountData };
+        else allLocal.push(accountData);
+        localStorage.setItem('codehub_deviceAccounts', JSON.stringify(allLocal.slice(0, MAX_ACCOUNTS)));
+        localStorage.setItem('auth_token', token);
+        localStorage.setItem('token_user_id', user.uid);
+        localStorage.setItem('current_userKey', userKey);
+        document.getElementById('accountCountNumber').textContent = allLocal.length;
+
+        redirectAfterAuth(userKey);
+      } catch(e) {
+        const m = { 'auth/user-not-found': 'Usuário não encontrado', 'auth/wrong-password': 'Senha incorreta', 'auth/invalid-email': 'Email inválido' };
+        showError(m[e.code] || 'Erro ao fazer login');
+        btn.disabled = false; btn.textContent = '🔐 Entrar';
+      }
+    };
+
+    // ==================== GOOGLE ====================
+    window.loginWithGoogle = async () => {
+      document.getElementById('global-error').classList.remove('show');
+      const localAccounts = JSON.parse(localStorage.getItem('codehub_deviceAccounts') || '[]');
+      if (localAccounts.length >= MAX_ACCOUNTS) return showError('Limite de 5 contas!');
+
+      try {
+        const masterKey = await getOrCreateMasterKey();
+        const result = await signInWithPopup(auth, provider);
+        const user = result.user;
+        const username = user.displayName || user.email.split('@')[0];
+        const snap = await get(ref(database, 'users/' + user.uid));
+        let userType = 'normal', userKey;
+
+        if (!snap.exists()) {
+          userKey = generateUserKey(user.uid);
+          await set(ref(database, 'users/' + user.uid), {
+            username, email: user.email, userType: 'normal', userKey, uid: user.uid,
+            masterKey, createdAt: Date.now(), lastLogin: Date.now(), provider: 'google', hasToken: true, deviceId
+          });
+        } else {
+          userType = snap.val().userType || 'normal';
+          userKey = snap.val().userKey || generateUserKey(user.uid);
+        }
+
+        const token = generateAuthToken(user.uid, user.email, username, userType, masterKey, null);
+        await set(ref(database, `userKeysData/${userKey}`), {
+          authToken: token,
+          authTokenDecoded: { createdAt: Date.now(), email: user.email, isPermanent: true, uid: user.uid, userType, username, masterKey, version: "2.0" },
+          criadoEm: Date.now(), email: user.email, hasAuthToken: true, isAnonymous: false, nome: username, uid: user.uid, deviceId, masterKey
+        });
+
+        const accountData = { uid: user.uid, email: user.email, username, userType, userKey, masterKey, lastLogin: Date.now() };
+        await addAccountToMasterKey(masterKey, accountData);
+
+        const allLocal = JSON.parse(localStorage.getItem('codehub_deviceAccounts') || '[]');
+        allLocal.push(accountData);
+        localStorage.setItem('codehub_deviceAccounts', JSON.stringify(allLocal.slice(0, MAX_ACCOUNTS)));
+        localStorage.setItem('auth_token', token);
+        localStorage.setItem('token_user_id', user.uid);
+        localStorage.setItem('current_userKey', userKey);
+        document.getElementById('accountCountNumber').textContent = allLocal.length;
+
+        redirectAfterAuth(userKey);
+      } catch(e) {
+        if (e.code !== 'auth/popup-closed-by-user') showError('Erro no Google');
+      }
+    };
+  </script>
 </body>
 </html>
